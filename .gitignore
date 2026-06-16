@@ -1,0 +1,47 @@
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Tauri
+src-tauri/target/
+src-tauri/Cargo.lock
+src-tauri/gen/schemas/
+
+# Local config
+.env
+.env.local
+.env.*.local
+
+# Vault (runtime, user data)
+PaperVault/
+papers.db
+papers.db-shm
+papers.db-wal
+pdfs/
+notes/
+
+# Build & cache
+.codegraph/
+.tmp/
+.vscode/
+.cache/
+*.tsbuildinfo
+vite.config.d.ts
+vite.config.js
+vitest.config.d.ts
+vitest.config.js
+
+# OS
+Thumbs.db
