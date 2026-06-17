@@ -529,14 +529,8 @@ pub fn merge_papers(
         )?;
         fields_merged.push("abstract".to_string());
     }
-    // 兜底：title 非空时，若两 paper 都有非空 title 但不相等 → 记录为冲突，
-    // 不自动覆盖（dst 优先）。仅记录到 fields_merged 表示有观察过。
-    if !snap_dst.paper.title.trim().is_empty()
-        && !snap_src.paper.title.trim().is_empty()
-        && snap_dst.paper.title != snap_src.paper.title
-    {
-        // 静默：dst 保留，不改。
-    }
+    // 兜底：title 冲突不自动覆盖；dst 优先保留（已由 2a 的 is_empty 条件隐含处理）。
+    // 注释承诺"记录到 fields_merged"并未实现，且无副作用，故移除空 if 块。
 
     // 2b) keywords auto: 替换为 src 全部 auto
     let src_auto: Vec<&KeywordSnapshot> = snap_src

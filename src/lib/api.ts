@@ -27,15 +27,39 @@ export class ApiError extends Error {
   }
 }
 
+// 后端 AppError 的 thiserror 模板会给 message 加 "未找到: " / "其他: " 之类前缀，
+// 分类已经在 kind 里体现了，前端只需要保留原始内容避免重复。
+const KIND_MESSAGE_PREFIX: Record<string, string> = {
+  db: "数据库错误: ",
+  io: "IO 错误: ",
+  pdf: "PDF 错误: ",
+  markdown: "Markdown 错误: ",
+  ai: "AI 错误: ",
+  config: "配置错误: ",
+  invalid: "参数错误: ",
+  not_found: "未找到: ",
+  other: "其他: ",
+};
+
+function friendlyMessage(kind: string, message: string): string {
+  const prefix = KIND_MESSAGE_PREFIX[kind];
+  if (prefix && message.startsWith(prefix)) {
+    return message.slice(prefix.length);
+  }
+  return message;
+}
+
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   try {
     return await invoke<T>(cmd, args);
   } catch (e) {
     if (e && typeof e === "object" && "kind" in e && "message" in e) {
-      throw new ApiError(
-        (e as { kind: string }).kind,
+      const kind = (e as { kind: string }).kind;
+      const message = friendlyMessage(
+        kind,
         (e as { message: string }).message,
       );
+      throw new ApiError(kind, message);
     }
     throw new ApiError("unknown", String(e));
   }

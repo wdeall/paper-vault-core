@@ -312,17 +312,17 @@ User input (DOI/URL/PDF/text)
 
 | 字段 | 策略 |
 |---|---|
-| `title` / `year` / `venue` / `abstract` | 取源更新值（last-write-wins） |
+| `title` / `year` / `venue` / `abstract` | dst 优先；dst 为空时用 src 补 |
 | `keywords` (auto) | 全部替换为新源值 |
 | `keywords` (manual) | 全部保留并集 |
-| `status` / `rating` | 保留用户值（dst paper 的） |
-| `note_path` | 保留 dst paper 的 |
+| `status` / `rating` | 保留 dst（视为权威） |
+| `note_path` | 保留 dst |
 | `attachments` | 按 sha256 合并去重（无 sha256 按 path） |
 | `annotations` | 全部保留并集 |
 | `paper_creators` | 按 (family+given) 合并去重，dst 的 ord 优先 |
 | `paper_relations` | 全部保留并集 |
 | `identifiers` | 全部保留并集 |
-| `reading_progress` | 保留 dst paper 的 |
+| `reading_progress` | 保留 dst |
 
 #### 3.3.5 撤销机制
 

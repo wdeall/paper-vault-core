@@ -26,10 +26,28 @@ function pickDiff(src: Paper, dst: Paper) {
     resolved: string;
   }> = [];
 
+  // 字段级策略（SPEC §3.3.4 / PLAN §5.3）：
+  // - 标量（title / year / venue / abstract / status / rating / note_path）：
+  //   dst 优先，仅 dst 为空时用 src 补齐
+  // - 集合（keywords manual / identifiers / attachments / annotations / creators）：
+  //   并集（去重）
+  // - 关键词 manual：并集；auto：src 全替换 dst
+  // 当前 preview 只显示 Paper 主表字段；集合字段的真实值在数据库合并，
+  // 合并说明文案里告知用户"其余字段按并集策略"。
   const rows: [string, string, string][] = [
     ["title", src.title, dst.title],
-    ["year", src.year ? String(src.year) : "", dst.year ? String(dst.year) : ""],
+    [
+      "year",
+      src.year != null ? String(src.year) : "—",
+      dst.year != null ? String(dst.year) : "—",
+    ],
     ["venue", src.venue, dst.venue],
+    ["status", PAPER_STATUS_LABELS[src.status], PAPER_STATUS_LABELS[dst.status]],
+    [
+      "rating",
+      src.rating != null ? String(src.rating) : "—",
+      dst.rating != null ? String(dst.rating) : "—",
+    ],
     [
       "authors",
       (src.authors ?? []).join("; "),
@@ -48,9 +66,9 @@ function pickDiff(src: Paper, dst: Paper) {
       fields.push({ name, src: s, dst: d, resolved: d });
       continue;
     }
-    if (d.trim() === "") {
+    if (d.trim() === "" || d === "—") {
       fields.push({ name, src: s, dst: d, resolved: s });
-    } else if (s.trim() === "") {
+    } else if (s.trim() === "" || s === "—") {
       fields.push({ name, src: s, dst: d, resolved: d });
     } else {
       // 都非空：dst 优先（保留）
