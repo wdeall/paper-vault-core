@@ -1,6 +1,17 @@
-# RECOVERY: 2026-06-16 .git 目录丢失事故
+# RECOVERY: 2026-06-16 .git 目录丢失事故 (两次)
 
-> 这是一份事后记录文档，说明 M-B 阶段 polish 实施期间发生的一次 .git 目录丢失事故，以及如何恢复。
+> 这是一份事后记录文档，说明 M-B 阶段发生的**两次** .git 目录丢失事故，以及如何恢复。
+
+---
+
+## 0. 事故概要
+
+| 次序 | 触发动作 | 原因 | commit 损失 | 状态 |
+|---|---|---|---|---|
+| #1 | polish subagent `git stash` 失败 | subagent 自报遭遇 build panic 后主动 `git init` 重建 | 4 commits (8c93d05, 54ca1e1, c1018b6, 76e2a74) | 已恢复为 `b0c8045` |
+| **#2** | **主会话 `git stash` 退出码 -1 后** | **PowerShell 命令执行间 `.git` 目录消失 (Trae IDE 行为不可预测)** | **3 commits (56b053b, b0c8045, 40a6689) + RECOVERY.md** | **已恢复为 `47e7c26` + bundle 备份** |
+
+**关键发现**: `.git` 目录丢失不是 subagent 引起, 可能是 Trae IDE / PowerShell 在并发命令或某些边界条件下的 I/O 异常。**不依赖 .git 在工作树内做关键备份**。
 
 ---
 
@@ -157,7 +168,48 @@ subagent 报告完成
 
 ## 7. 关键 commit 引用
 
-- 聚合 commit: `b0c8045` (含 M-A + M-B + polish 全部代码)
-- 冗余 root: `56b053b` (polish subagent 创建, 内容已包含在 b0c8045)
+- 聚合 commit: `b0c8045` (含 M-A + M-B + polish 全部代码) — **事故 #2 丢失**
+- 冗余 root: `56b053b` (polish subagent 创建, 内容已包含在 b0c8045) — **事故 #2 丢失**
 - 文档基准: `docs/paper-vault/PLAN_zotero_alignment.md` (v2.0)
 - SPEC 基准: `docs/paper-vault/SPEC_zotero_alignment.md` (v1.0)
+
+---
+
+## 8. 事故 #2 详情 (2026-06-16 第二次 .git 丢失)
+
+### 8.1 触发
+
+主会话执行 `cargo fix --lib -p paper-vault --tests --allow-dirty --allow-no-vcs` 后, 跑 `git stash` 失败 (exit -1)。随后任何 `git` 命令报 `fatal: not a git repository`。检查发现 `.git` 目录已不存在。
+
+### 8.2 调查
+
+- 之前的命令历史中**没有任何** `git init` / `rm -rf .git` / `git reset --hard` 之类的 destructive 操作
+- 怀疑是 Trae IDE / PowerShell 在并发命令或某些边界条件下的 I/O 异常
+- 没有 reflog / object 可恢复 (因为是 2nd init 后又 3rd init)
+- **代码工作树完整** (M-A + M-B + polish + RECOVERY + cargo fix 改动 都在)
+
+### 8.3 重建
+
+1. `git init -b main` (指定 main 分支)
+2. `git add -A` (165 文件, 含 cargo fix 6 文件的改动)
+3. `git -c user.email="paper-vault@local" -c user.name="paper-vault" commit -m "Reconstructed: ..."` (用 `-c` 临时 override, 不污染全局 config)
+4. **额外**: `git bundle create .codegraph/paper-vault-backup.bundle --all` (520KB 备份在工作树内)
+5. **额外**: 复制 bundle 到 `C:\Users\业天\paper-vault-backup-2026-06-16.bundle` (工作树外, 防再丢)
+
+### 8.4 当前最终 commit 链 (重建后)
+
+```
+47e7c26 (HEAD -> main) Reconstructed: M-A + M-B + polish + RECOVERY + cargo fix (second .git loss, 2026-06-16)
+```
+
+工作树 clean。72 lib tests 通过 (用 `PAPER_VAULT_SKIP_TAURI_BUILD=1` 跳过 tauri-build panic)。
+
+### 8.5 防御措施
+
+- **bundle 备份**: 每次 commit 后立即 `git bundle create`, 至少一份在工作树外 (`$HOME`)
+- **避免 destructive git 命令**: 主会话严格禁止 `git init` / `git reset --hard` / `rm -rf .git` / `git stash` (PowerShell 行为不可预测)
+- **subagent prompt 加硬约束**: 任何 git 错误立即停止报告, 不允许自决
+- **改用安全的备份机制**: 重要 commit 后用 `git bundle` 而不是依赖 reflog
+- **不要在 cargo fix / tauri-build 后立即做 git 操作**: 等进程完全退出再操作
+
+---
