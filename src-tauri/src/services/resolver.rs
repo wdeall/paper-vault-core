@@ -65,7 +65,7 @@ impl Resolver for CrossrefResolver {
 
     async fn fetch(&self, value: &str) -> AppResult<PaperMetadata> {
         let url = format!("{}/{}", self.base_url.trim_end_matches('/'), value);
-        let resp = self.client.get(&url).send().await?;
+        let resp = send_with_retry(&self.client, &url).await?;
         let status = resp.status();
         if status == reqwest::StatusCode::NOT_FOUND {
             return Err(AppError::NotFound(format!(
@@ -228,7 +228,7 @@ impl Resolver for ArxivResolver {
 
     async fn fetch(&self, value: &str) -> AppResult<PaperMetadata> {
         let url = format!("{}?id_list={}", self.base_url, value);
-        let resp = self.client.get(&url).send().await?;
+        let resp = send_with_retry(&self.client, &url).await?;
         let status = resp.status();
         if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
             return Err(AppError::Other("源服务限流，请稍后重试".into()));
@@ -359,11 +359,17 @@ impl Resolver for PubMedResolver {
 
     async fn fetch(&self, value: &str) -> AppResult<PaperMetadata> {
         let url = format!(
-            "{}?db=pubmed&id={}&retmode=json",
+            "{}?bibkeys=ISBN:{}&format=json&jscmd=data",
             self.base_url, value
         );
-        let resp = self.client.get(&url).send().await?;
+        let resp = send_with_retry(&self.client, &url).await?;
         let status = resp.status();
+        if status == reqwest::StatusCode::NOT_FOUND {
+            return Err(AppError::NotFound(format!(
+                "找不到该 PMID 对应的元数据 ({})",
+                value
+            )));
+        }
         if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
             return Err(AppError::Other("源服务限流，请稍后重试".into()));
         }
@@ -478,8 +484,14 @@ impl Resolver for OpenLibraryResolver {
             "{}?bibkeys=ISBN:{}&format=json&jscmd=data",
             self.base_url, value
         );
-        let resp = self.client.get(&url).send().await?;
+        let resp = send_with_retry(&self.client, &url).await?;
         let status = resp.status();
+        if status == reqwest::StatusCode::NOT_FOUND {
+            return Err(AppError::NotFound(format!(
+                "找不到该 ISBN 对应的元数据 ({})",
+                value
+            )));
+        }
         if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
             return Err(AppError::Other("源服务限流，请稍后重试".into()));
         }
@@ -558,6 +570,20 @@ fn build_client() -> AppResult<Client> {
         .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
         .build()
         .map_err(|e| AppError::Other(format!("HTTP client 初始化失败: {e}")))
+}
+
+/// 包装 `client.get(url).send()`，对网络层 transient error 重试一次。
+/// SPEC §7.2 承诺 "网络错误重试一次"。
+/// 4xx / 5xx / 解析错误不在重试范围（重试 4xx 没意义，重试 5xx 留给客户端 middleware）。
+async fn send_with_retry(client: &Client, url: &str) -> AppResult<reqwest::Response> {
+    let r1 = client.get(url).send().await;
+    match r1 {
+        Ok(r) => Ok(r),
+        Err(e) => {
+            log::warn!("resolver transient error: {e}; retrying once");
+            client.get(url).send().await.map_err(AppError::from)
+        }
+    }
 }
 
 /// 工厂：根据 scheme 拿到对应 resolver。
@@ -735,6 +761,97 @@ mod tests {
         let body = json!({"ISBN:x": {"publish_date": "2010-01-01"}});
         let m = parse_openlibrary_book(body.get("ISBN:x").unwrap(), "x").unwrap();
         assert_eq!(m.year, Some(2010));
+    }
+
+    #[tokio::test]
+    async fn pubmed_fetches_minimal_summary() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "result": {
+                    "12345": {
+                        "title": "Test PMID Paper",
+                        "authors": [{"name": "Alice"}],
+                        "fulljournalname": "Nature",
+                        "pubdate": "2024 Jan 5",
+                        "articleids": [
+                            {"idtype": "pubmed", "value": "12345"},
+                            {"idtype": "doi", "value": "10.1109/test"}
+                        ]
+                    }
+                }
+            })))
+            .mount(&server)
+            .await;
+        let r = PubMedResolver {
+            client: build_client().unwrap(),
+            base_url: server.uri(),
+        };
+        let m = r.fetch("12345").await.unwrap();
+        assert_eq!(m.title, "Test PMID Paper");
+        assert_eq!(m.authors, vec!["Alice"]);
+        assert_eq!(m.venue, "Nature");
+        assert_eq!(m.year, Some(2024));
+        assert_eq!(m.doi, "10.1109/test");
+        assert!(m.identifiers.iter().any(|(k, v)| k == "pmid" && v == "12345"));
+    }
+
+    #[tokio::test]
+    async fn pubmed_404_returns_not_found() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+        let r = PubMedResolver {
+            client: build_client().unwrap(),
+            base_url: server.uri(),
+        };
+        let err = r.fetch("99999").await.unwrap_err();
+        assert!(matches!(err, AppError::NotFound(_)), "got {err:?}");
+    }
+
+    #[tokio::test]
+    async fn openlibrary_fetches_minimal_book() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "ISBN:9780123456789": {
+                    "title": "Test Book",
+                    "authors": [{"name": "Alice"}],
+                    "publish_date": "2020",
+                    "publishers": [{"name": "Test Press"}]
+                }
+            })))
+            .mount(&server)
+            .await;
+        let r = OpenLibraryResolver {
+            client: build_client().unwrap(),
+            base_url: server.uri(),
+        };
+        let m = r.fetch("9780123456789").await.unwrap();
+        assert_eq!(m.title, "Test Book");
+        assert_eq!(m.authors, vec!["Alice"]);
+        assert_eq!(m.year, Some(2020));
+    }
+
+    #[tokio::test]
+    async fn openlibrary_404_returns_not_found() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+        let r = OpenLibraryResolver {
+            client: build_client().unwrap(),
+            base_url: server.uri(),
+        };
+        let err = r.fetch("9999999999").await.unwrap_err();
+        assert!(matches!(err, AppError::NotFound(_)), "got {err:?}");
     }
 
     #[test]
