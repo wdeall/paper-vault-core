@@ -11,6 +11,9 @@ const AI_BLOCK_END: &str = "<!-- AI_GENERATED_END:";
 pub struct NoteContent {
     pub frontmatter: serde_yaml::Value,
     pub body: String,
+    /// 读入时保留原始文本，便于写入时无损回写。消费方目前只用 `body`，
+    /// `raw` 暂作为 debug / 未来 diff 工具的输入保留。
+    #[allow(dead_code)]
     pub raw: String,
 }
 
@@ -104,7 +107,9 @@ pub fn default_template(meta: &crate::types::Paper) -> String {
 }
 
 /// AI 区块名常量
+#[allow(dead_code)] // 仅在 tests/lib 中构造, lib build 时 Rust 看不到引用方; 保留供 markdown UI 共用。
 pub const BLOCK_SUMMARY: &str = "summary";
+#[allow(dead_code)]
 pub const BLOCK_KEY_POINTS: &str = "key_points";
 
 /// 安全更新 AI 区块。如果原笔记没有该区块则不动。

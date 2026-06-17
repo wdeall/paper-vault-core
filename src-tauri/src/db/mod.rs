@@ -103,6 +103,7 @@ pub fn count_indexed(vault: &Path) -> AppResult<i64> {
 }
 
 // 简单包装：执行一个 SQL 文件（多次语句）。
+#[allow(dead_code)]
 pub fn exec_sql(vault: &Path, sql: &str) -> AppResult<()> {
     let conn = open(vault)?;
     conn.execute_batch(sql)?;
@@ -111,9 +112,10 @@ pub fn exec_sql(vault: &Path, sql: &str) -> AppResult<()> {
 
 pub mod migrations {
     //! 迁移文件位置常量
-    pub const INIT: &str = include_str!("migrations/0001_init.sql");
     // P0 引入的第二个迁移文件，inline 在 `migrate()` 中按文件名顺序
     // 自动执行；这里保留常量以便后续脚本 / 测试按需使用。
+    #[allow(dead_code)]
+    pub const INIT: &str = include_str!("migrations/0001_init.sql");
     #[allow(dead_code)]
     pub const V2_ALIGNMENT: &str = include_str!("migrations/0002_zotero_alignment.sql");
 }

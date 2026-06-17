@@ -208,6 +208,7 @@ pub fn backup_database(vault: &Path) -> AppResult<PathBuf> {
 }
 
 /// 把 vault 相对路径解析为绝对路径。`..` 穿越会被拒绝。
+#[allow(dead_code)] // 主要给测试与未来 PDF 相对路径解析用；当前 commands/* 直接用 vault::join 即可。
 pub fn resolve_safe(vault: &Path, rel: &str) -> AppResult<PathBuf> {
     if rel.contains("..") {
         return Err(AppError::Invalid("路径含 '..' 拒绝".into()));

@@ -32,6 +32,7 @@ impl AppState {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+#[allow(unexpected_cfgs)]
 pub fn run() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .init();
@@ -50,7 +51,12 @@ pub fn run() {
                     if let Err(e) = vault::init_at(&path) {
                         log::warn!("加载上次 vault 失败: {e}");
                     } else {
-                        *state.vault_path.write() = Some(path);
+                        *state.vault_path.write() = Some(path.clone());
+                        // 启动时清理超过 5 分钟撤销窗口的 merge_log 行（避免长
+                        // 期运行的 vault 累积过期快照）。
+                        if let Err(e) = services::merge::cleanup_old_merge_log(&path) {
+                            log::warn!("清理过期 merge_log 失败: {e}");
+                        }
                     }
                 }
             }

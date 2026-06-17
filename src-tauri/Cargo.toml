@@ -48,7 +48,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 [profile.release]
 panic = "abort"
-codegen-units = 1
-lto = true
-opt-level = "s"
-strip = true
+
+# Tauri 2 在 mobile target 上挂的 cfg；这里告诉 rustc 我们知道这个 cfg。
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(mobile)'] }

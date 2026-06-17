@@ -23,6 +23,7 @@ pub const DEFAULT_USER_AGENT: &str = "PaperVault/0.1 (https://github.com/...)";
 /// Resolver 抽象。
 #[async_trait]
 pub trait Resolver: Send + Sync {
+    #[allow(dead_code)] // 通过 `Box<dyn Resolver>` 调用；当前 import_by_identifier 走 match，trait 入口暂未触发。
     fn scheme(&self) -> Scheme;
     /// 给定纯 value（不含 URL 前缀），返回 `PaperMetadata`。
     /// 失败时必须返回 `AppError`，由 `import_by_identifier` 转为
@@ -47,6 +48,7 @@ impl CrossrefResolver {
         })
     }
 
+    #[allow(dead_code)] // 测试构造时使用；生产代码走 new() 即可。
     pub fn with_base_url(base_url: impl Into<String>) -> AppResult<Self> {
         Ok(Self {
             client: build_client()?,
@@ -559,6 +561,7 @@ fn build_client() -> AppResult<Client> {
 }
 
 /// 工厂：根据 scheme 拿到对应 resolver。
+#[allow(dead_code)] // 当前 import_by_identifier 走 match，工厂暂未在生产路径触发；保留供 M-C 搜索阶段切换为 dyn dispatch。
 pub fn default_resolver(scheme: Scheme) -> AppResult<Box<dyn Resolver>> {
     match scheme {
         Scheme::Doi => Ok(Box::new(CrossrefResolver::new()?)),
