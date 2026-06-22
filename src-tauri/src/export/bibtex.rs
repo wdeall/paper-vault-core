@@ -4,6 +4,7 @@ use crate::types::Paper;
 
 /// 由 metadata 推断 entry type。
 /// 有 journal → article；booktitle → inproceedings；其他 → misc。
+#[allow(dead_code)]
 pub fn entry_type(p: &Paper) -> &'static str {
     if !p.venue.is_empty() {
         // 粗略：包含 proceedings 字样当 inproceedings
@@ -17,6 +18,7 @@ pub fn entry_type(p: &Paper) -> &'static str {
 }
 
 /// 用 title 转 cite key：首词小写 + 年份 + 首作者姓氏首字母。
+#[allow(dead_code)]
 pub fn cite_key(p: &Paper) -> String {
     let first = p
         .authors
@@ -44,7 +46,7 @@ pub fn cite_key(p: &Paper) -> String {
     format!("{first}{word}{year}")
 }
 
-fn escape_bibtex(s: &str) -> String {
+pub fn escape_bibtex(s: &str) -> String {
     // 简化转义：把 \ { } $ & % # _ ^ 替换为 LaTeX 转义
     let mut out = String::with_capacity(s.len());
     for ch in s.chars() {
@@ -67,29 +69,11 @@ fn escape_bibtex(s: &str) -> String {
 }
 
 pub fn render(papers: &[Paper]) -> String {
+    // SPEC §3.6: Paper → CSL-JSON → BibTeX
     let mut s = String::new();
     for p in papers {
-        let et = entry_type(p);
-        let key = cite_key(p);
-        s.push_str(&format!("@{et}{{{key},\n"));
-        s.push_str(&format!("  title  = {{{}}},\n", escape_bibtex(&p.title)));
-        if !p.authors.is_empty() {
-            s.push_str(&format!(
-                "  author = {{{}}},\n",
-                escape_bibtex(&p.authors.join(" and "))
-            ));
-        }
-        if let Some(y) = p.year {
-            s.push_str(&format!("  year   = {{{y}}},\n"));
-        }
-        if !p.venue.is_empty() {
-            let field = if et == "inproceedings" { "booktitle" } else { "journal" };
-            s.push_str(&format!("  {field} = {{{}}},\n", escape_bibtex(&p.venue)));
-        }
-        if !p.doi.is_empty() {
-            s.push_str(&format!("  doi    = {{{}}},\n", escape_bibtex(&p.doi)));
-        }
-        s.push_str("}\n\n");
+        let csl = crate::export::csl::paper_to_csl(p);
+        s.push_str(&crate::export::csl::csl_to_bibtex(&csl));
     }
     s
 }
@@ -132,7 +116,8 @@ mod tests {
     fn render_contains_key_fields() {
         let s = render(&[p()]);
         assert!(s.contains("@inproceedings"));
-        assert!(s.contains("Alice Smith and Bob"));
+        // CSL 路径: author 为 "family, given" 格式
+        assert!(s.contains("Smith, Alice and Bob"));
         assert!(s.contains("booktitle"));
         assert!(s.contains("Hello, World!"));
     }

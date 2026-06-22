@@ -221,6 +221,10 @@ export const api = {
 
   // === Export ===
   exportBibtex: (ids: string[]) => call<string>("export_bibtex", { ids }),
+  // M-E P5：标准化导出格式 - RIS（EndNote/Mendeley/Zotero 通用）
+  exportRis: (ids: string[]) => call<string>("export_ris", { ids }),
+  // M-E P5：标准化导出格式 - CSL-JSON（Pandoc/Zotero 通用）
+  exportCslJson: (ids: string[]) => call<string>("export_csl_json", { ids }),
   exportMarkdownCitation: (ids: string[]) =>
     call<string>("export_markdown_citation", { ids }),
 

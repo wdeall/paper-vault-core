@@ -105,6 +105,8 @@ pub fn run() {
             commands::update_ai_config,
             commands::export_bibtex,
             commands::export_markdown_citation,
+            commands::export_ris,
+            commands::export_csl_json,
             commands::load_seed_data,
             commands::get_fts_status,
             commands::create_annotation,
