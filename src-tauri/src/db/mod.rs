@@ -118,6 +118,9 @@ pub mod migrations {
     pub const INIT: &str = include_str!("migrations/0001_init.sql");
     #[allow(dead_code)]
     pub const V2_ALIGNMENT: &str = include_str!("migrations/0002_zotero_alignment.sql");
+    // P3: 移除 fulltext_index,搜索切到 papers_fts。
+    #[allow(dead_code)]
+    pub const V3_DROP_FULLTEXT_INDEX: &str = include_str!("migrations/0003_drop_fulltext_index.sql");
 }
 
 #[cfg(test)]

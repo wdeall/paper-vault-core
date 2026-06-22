@@ -8,6 +8,7 @@ import { isTauri } from "@/lib/tauri";
 import { usePaperStore } from "@/stores/paper";
 import { useUIStore } from "@/stores/ui";
 import type { Paper } from "@/types";
+import { PAPER_STATUS_LABELS } from "@/types";
 
 interface MergeDialogProps {
   src: Paper;

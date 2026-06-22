@@ -1,8 +1,8 @@
-//! 搜索命令
+//! P3 双通道搜索命令
 
-use crate::error::AppResult;
-use crate::services::index;
-use crate::types::{IndexStatusSummary, SearchHit};
+use crate::error::{AppError, AppResult};
+use crate::services::{index, search};
+use crate::types::{IndexStatusSummary, PaperSummary, SearchHit, StructuredQuery};
 use tauri::State;
 
 use crate::AppState;
@@ -12,17 +12,37 @@ fn require_vault<'a>(state: &'a State<'_, AppState>) -> AppResult<std::path::Pat
     guard
         .as_ref()
         .cloned()
-        .ok_or_else(|| crate::error::AppError::Config("vault 未初始化".into()))
+        .ok_or_else(|| AppError::Config("vault 未初始化".into()))
 }
 
 #[tauri::command]
-pub async fn search(
+pub async fn search_structured(
+    state: State<'_, AppState>,
+    query: StructuredQuery,
+) -> AppResult<Vec<PaperSummary>> {
+    let vault = require_vault(&state)?;
+    search::search_structured(&vault, &query)
+}
+
+#[tauri::command]
+pub async fn search_fulltext(
     state: State<'_, AppState>,
     query: String,
-    scopes: Option<Vec<String>>,
+    limit: Option<usize>,
 ) -> AppResult<Vec<SearchHit>> {
     let vault = require_vault(&state)?;
-    index::search(&vault, &query, scopes.as_deref())
+    search::search_fulltext(&vault, &query, limit)
+}
+
+#[tauri::command]
+pub async fn search_both(
+    state: State<'_, AppState>,
+    query: StructuredQuery,
+    fts_query: String,
+    limit: Option<usize>,
+) -> AppResult<Vec<PaperSummary>> {
+    let vault = require_vault(&state)?;
+    search::search_both(&vault, &query, &fts_query, limit)
 }
 
 #[tauri::command]

@@ -1,20 +1,24 @@
-//! FTS5 全文搜索服务
+//! 索引服务：维护 papers_fts + index_status。
+//!
+//! P3 起 fulltext_index 表已废弃 (migration 0003 删除),搜索切到
+//! papers_fts (metadata-only)。本模块只保留 reindex_paper /
+//! reindex_all / status_summary 三个入口,实际 FTS 写入由
+//! `services::search::sync_papers_fts` 完成。
 
 use crate::db;
 use crate::error::{AppError, AppResult};
-use crate::pdf;
-use crate::types::{IndexStatusSummary, SearchHit};
+use crate::types::IndexStatusSummary;
 use rusqlite::params;
 use std::path::Path;
 
+/// 重建单篇论文的 papers_fts 行 + 更新 index_status。
+///
+/// P3 起 fulltext_index 表已删除,本函数只做:
+///   1. 写 index_status = "索引中"
+///   2. 调 `services::search::sync_papers_fts` 同步 papers_fts
+///   3. 写 index_status = "已索引"
 pub fn reindex_paper(vault: &Path, paper_id: &str) -> AppResult<()> {
     let conn = db::open(vault)?;
-    // 删除旧索引行
-    conn.execute(
-        "DELETE FROM fulltext_index WHERE paper_id = ?1",
-        params![paper_id],
-    )?;
-
     // 写 status = 索引中
     let now = chrono::Local::now().timestamp_millis();
     conn.execute(
@@ -23,76 +27,36 @@ pub fn reindex_paper(vault: &Path, paper_id: &str) -> AppResult<()> {
         params![paper_id, "索引中", now],
     )?;
 
-    // 读 paper (新 schema)
-    let paper = crate::services::paper::load_paper(vault, paper_id)?
-        .ok_or_else(|| AppError::NotFound(format!("论文 {paper_id} 不存在")))?;
-
-    // title / authors / abstract / keywords
-    if !paper.title.is_empty() {
-        conn.execute(
-            "INSERT INTO fulltext_index (paper_id, source_type, content, page) VALUES (?1, ?2, ?3, ?4)",
-            params![paper_id, "title", paper.title, Option::<i32>::None],
-        )?;
-    }
-    if !paper.authors.is_empty() {
-        conn.execute(
-            "INSERT INTO fulltext_index (paper_id, source_type, content, page) VALUES (?1, ?2, ?3, ?4)",
-            params![paper_id, "authors", paper.authors.join(" "), Option::<i32>::None],
-        )?;
-    }
-    if !paper.abstract_text.is_empty() {
-        conn.execute(
-            "INSERT INTO fulltext_index (paper_id, source_type, content, page) VALUES (?1, ?2, ?3, ?4)",
-            params![paper_id, "abstract", paper.abstract_text, Option::<i32>::None],
-        )?;
-    }
-    if !paper.keywords.is_empty() {
-        conn.execute(
-            "INSERT INTO fulltext_index (paper_id, source_type, content, page) VALUES (?1, ?2, ?3, ?4)",
-            params![paper_id, "keywords", paper.keywords.join(" "), Option::<i32>::None],
-        )?;
-    }
-    if !paper.doi.is_empty() {
-        conn.execute(
-            "INSERT INTO fulltext_index (paper_id, source_type, content, page) VALUES (?1, ?2, ?3, ?4)",
-            params![paper_id, "doi", paper.doi.clone(), Option::<i32>::None],
-        )?;
+    // 校验 paper 存在
+    let exists: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM papers WHERE id = ?1",
+            params![paper_id],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    if exists == 0 {
+        return Err(AppError::NotFound(format!("论文 {paper_id} 不存在")));
     }
 
-    // notes
-    if !paper.note_path.is_empty() {
-        let np = std::path::Path::new(&paper.note_path);
-        if np.exists() {
-            if let Ok(text) = std::fs::read_to_string(np) {
-                conn.execute(
-                    "INSERT INTO fulltext_index (paper_id, source_type, content, page) VALUES (?1, ?2, ?3, ?4)",
-                    params![paper_id, "notes", text, Option::<i32>::None],
-                )?;
-            }
-        }
-    }
-
-    // pdf
-    if !paper.pdf_path.is_empty() {
-        let pp = std::path::Path::new(&paper.pdf_path);
-        if pp.exists() {
-            for (page, text) in pdf::extract_pages(pp) {
-                conn.execute(
-                    "INSERT INTO fulltext_index (paper_id, source_type, content, page) VALUES (?1, ?2, ?3, ?4)",
-                    params![paper_id, "pdf", text, page],
-                )?;
-            }
-        }
+    // 同步 papers_fts
+    if let Err(e) = crate::services::search::sync_papers_fts(&conn, paper_id) {
+        let _ = conn.execute(
+            "UPDATE index_status SET status = ?2, error = ?3 WHERE paper_id = ?1",
+            params![paper_id, "索引失败", e.to_string()],
+        );
+        return Err(e);
     }
 
     // 写 status = 已索引
     conn.execute(
-        "UPDATE index_status SET status = ?2, indexed_at = ?3 WHERE paper_id = ?1",
+        "UPDATE index_status SET status = ?2, indexed_at = ?3, error = NULL WHERE paper_id = ?1",
         params![paper_id, "已索引", chrono::Local::now().timestamp_millis()],
     )?;
     Ok(())
 }
 
+/// 遍历所有 paper_id 调 reindex_paper。
 pub fn reindex_all(vault: &Path) -> AppResult<()> {
     let conn = db::open(vault)?;
     let mut stmt = conn.prepare("SELECT id FROM papers")?;
@@ -115,113 +79,24 @@ pub fn reindex_all(vault: &Path) -> AppResult<()> {
     Ok(())
 }
 
-fn weight_for(source: &str) -> f32 {
-    match source {
-        "title" => 10.0,
-        "authors" | "doi" => 8.0,
-        "keywords" => 6.0,
-        "abstract" => 4.0,
-        "notes" => 3.0,
-        "pdf" => 1.0,
-        _ => 1.0,
-    }
-}
-
-fn snippet_around(haystack: &str, needle: &str, half: usize) -> String {
-    if needle.is_empty() {
-        return haystack.chars().take(half * 2).collect();
-    }
-    let lower = haystack.to_lowercase();
-    let lower_needle = needle.to_lowercase();
-    if let Some(pos) = lower.find(&lower_needle) {
-        let start = pos.saturating_sub(half);
-        let end = (pos + needle.len() + half).min(haystack.len());
-        let mut s = String::new();
-        if start > 0 {
-            s.push('…');
-        }
-        s.push_str(&haystack[start..end]);
-        if end < haystack.len() {
-            s.push('…');
-        }
-        s
-    } else {
-        haystack.chars().take(half * 2).collect()
-    }
-}
-
-pub fn search(
-    vault: &Path,
-    query: &str,
-    _scopes: Option<&[String]>,
-) -> AppResult<Vec<SearchHit>> {
-    let conn = db::open(vault)?;
-    // 简单权重：按 source_type 区分。FTS5 自身按 bm25 排，我们再叠权重。
-    let fts_query = sanitize_fts_query(query);
-    if fts_query.is_empty() {
-        return Ok(Vec::new());
-    }
-    let mut stmt = conn.prepare(
-        "SELECT paper_id, source_type, content, page, bm25(fulltext_index) AS rank
-         FROM fulltext_index
-         WHERE fulltext_index MATCH ?1
-         LIMIT 200",
-    )?;
-    let rows = stmt.query_map(params![fts_query], |r| {
-        Ok((
-            r.get::<_, String>(0)?,
-            r.get::<_, String>(1)?,
-            r.get::<_, String>(2)?,
-            r.get::<_, Option<i32>>(3)?,
-            r.get::<_, f32>(4)?,
-        ))
-    })?;
-
-    let mut hits: Vec<SearchHit> = Vec::new();
-    for r in rows {
-        let (pid, src, content, page, rank) = r?;
-        let base = 1.0 / (1.0 + rank.max(0.0));
-        let score = base * weight_for(&src);
-        let snippet = snippet_around(&content, query, 40);
-        hits.push(SearchHit {
-            paper_id: pid,
-            source_type: src,
-            snippet,
-            page,
-            score,
-        });
-    }
-
-    // 二次排序：score desc
-    hits.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
-    hits.truncate(100);
-    Ok(hits)
-}
-
-fn sanitize_fts_query(q: &str) -> String {
-    // FTS5 关键字中含特殊字符会报错。这里只保留字母数字与空格并加引号包裹。
-    let cleaned: String = q
-        .chars()
-        .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '_')
-        .collect();
-    let trimmed = cleaned.trim();
-    if trimmed.is_empty() {
-        return String::new();
-    }
-    format!("\"{}\"", trimmed.replace('"', " "))
-}
-
+/// 索引状态汇总。indexed = papers_fts 行数。
 pub fn status_summary(vault: &Path) -> AppResult<IndexStatusSummary> {
     let conn = db::open(vault)?;
     let mut sum = IndexStatusSummary::default();
     sum.total = conn
         .query_row("SELECT COUNT(*) FROM papers", [], |r| r.get(0))?;
+    // indexed = papers_fts 行数 (与 papers 表 JOIN 防止 FTS 残留)
+    sum.indexed = conn.query_row(
+        "SELECT COUNT(*) FROM papers WHERE id IN (SELECT paper_id FROM papers_fts)",
+        [],
+        |r| r.get(0),
+    )?;
     let mut stmt = conn.prepare("SELECT status, COUNT(*) FROM index_status GROUP BY status")?;
     let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
     for r in rows {
         let (s, n) = r?;
         match s.as_str() {
-            "已索引" => sum.indexed = n,
+            "已索引" => {}
             "索引中" => sum.indexing = n,
             "索引失败" => sum.failed = n,
             _ => sum.pending += n,

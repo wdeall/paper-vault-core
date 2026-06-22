@@ -21,7 +21,7 @@ export function PaperListPane() {
   const smartView = usePaperStore((s) => s.smartView);
   const loadPapers = usePaperStore((s) => s.loadPapers);
   const showToast = useUIStore((s) => s.showToast);
-  const searchHits = useSearchStore((s) => s.hits);
+  const searchHits = useSearchStore((s) => s.hitResults);
   const [localQuery, setLocalQuery] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("updated_at");
   const [loading, setLoading] = useState(false);

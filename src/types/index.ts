@@ -84,6 +84,31 @@ export interface AIProviderConfig {
   model: string;
 }
 
+// M-C P3：双通道搜索的查询与结果类型
+// StructuredQuery 字段对齐后端 Rust struct，模糊字段传字符串、精确字段传字符串/数字
+export interface StructuredQuery {
+  title?: string | null;
+  author?: string | null;
+  year?: number | null;
+  venue?: string | null;
+  doi?: string | null;
+  status?: string | null;
+  keyword?: string | null;
+}
+
+// PaperSummary：结构化 / 双通道搜索返回的论文摘要
+// score 在 both 模式下携带 FTS 分数；structured 模式为 null
+export interface PaperSummary {
+  id: string;
+  title: string;
+  year: number | null;
+  authors: string[];
+  venue: string;
+  status: string;
+  rating: number | null;
+  score: number | null;
+}
+
 export interface SearchHit {
   paper_id: string;
   source_type:
@@ -91,9 +116,8 @@ export interface SearchHit {
     | "authors"
     | "abstract"
     | "keywords"
-    | "doi"
-    | "notes"
-    | "pdf";
+    | "venue"
+    | "doi";
   snippet: string;
   page: number | null;
   score: number;

@@ -16,8 +16,10 @@ export function TopBar() {
   const navigate = useNavigate();
   const importPapers = usePaperStore((s) => s.importPdfs);
   const showToast = useUIStore((s) => s.showToast);
-  const setQuery = useSearchStore((s) => s.setQuery);
-  const query = useSearchStore((s) => s.query);
+  // M-C P3：TopBar 仅作为全文搜索快捷入口，复用 fulltextQuery 字段
+  const setFulltextQuery = useSearchStore((s) => s.setFulltextQuery);
+  const setMode = useSearchStore((s) => s.setMode);
+  const fulltextQuery = useSearchStore((s) => s.fulltextQuery);
   const runSearch = useSearchStore((s) => s.run);
   const [importing, setImporting] = useState(false);
   const [idDialogOpen, setIdDialogOpen] = useState(false);
@@ -66,6 +68,18 @@ export function TopBar() {
     }
   }
 
+  // TopBar 搜索：固定为 fulltext 模式，触发后跳转到 library 页面
+  async function handleSearch() {
+    if (!fulltextQuery.trim()) return;
+    setMode("fulltext");
+    try {
+      await runSearch();
+      navigate("/library");
+    } catch (e) {
+      showToast("error", `搜索失败: ${(e as Error).message}`);
+    }
+  }
+
   return (
     <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-card px-4">
       <div className="text-sm font-semibold">PaperVault</div>
@@ -94,12 +108,12 @@ export function TopBar() {
         <div className="relative">
           <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            value={fulltextQuery}
+            onChange={(e) => setFulltextQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") runSearch();
+              if (e.key === "Enter") void handleSearch();
             }}
-            placeholder="搜索标题 / 作者 / 摘要 / 笔记 / PDF 全文"
+            placeholder="全文搜索 标题 / 作者 / DOI / 关键词 / 摘要 / 出处"
             className="pl-8"
           />
         </div>

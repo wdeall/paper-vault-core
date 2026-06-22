@@ -230,10 +230,37 @@ pub struct DuplicateCandidate {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SearchHit {
     pub paper_id: String,
-    pub source_type: String, // "title" / "authors" / "abstract" / "keywords" / "doi" / "notes" / "pdf"
+    // papers_fts 字段名: "title" / "abstract" / "authors" / "keywords" / "venue" / "doi"
+    pub source_type: String,
     pub snippet: String,
     pub page: Option<i32>,
     pub score: f32,
+}
+
+/// P3: 结构化搜索查询。所有字段可选,AND 组合。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct StructuredQuery {
+    pub title: Option<String>,   // 模糊 LIKE %x%
+    pub author: Option<String>,  // 跨 creators + paper_creators, display_name LIKE %x%
+    pub year: Option<i32>,       // 精确
+    pub venue: Option<String>,   // 模糊 LIKE %x%
+    pub doi: Option<String>,     // 精确 (规范化后)
+    pub status: Option<String>,  // unread|reading|read
+    pub keyword: Option<String>, // 跨 keywords + paper_keywords, name LIKE %x%
+}
+
+/// P3: 搜索结果摘要 (Structured / Both 模式返回)。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PaperSummary {
+    pub id: String,
+    pub title: String,
+    pub year: Option<i32>,
+    pub authors: Vec<String>,
+    pub venue: String,
+    pub status: String,
+    pub rating: Option<i32>,
+    /// Both 模式带 FTS score;Structured 模式为 None
+    pub score: Option<f32>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

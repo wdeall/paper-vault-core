@@ -15,8 +15,10 @@ import type {
   NoteContent,
   Paper,
   PaperDetail,
+  PaperSummary,
   ReadingProgress,
   SearchHit,
+  StructuredQuery,
   VaultInfo,
 } from "@/types";
 
@@ -150,8 +152,13 @@ export const api = {
     call<void>("update_note_ai_block", { id, block, content }),
 
   // === Search ===
-  search: (query: string, scopes?: string[]) =>
-    call<SearchHit[]>("search", { query, scopes: scopes ?? null }),
+  // M-C P3：双通道搜索 - 结构化 / 全文 / 双通道
+  searchStructured: (query: StructuredQuery) =>
+    call<PaperSummary[]>("search_structured", { query }),
+  searchFulltext: (query: string, limit?: number) =>
+    call<SearchHit[]>("search_fulltext", { query, limit: limit ?? null }),
+  searchBoth: (query: StructuredQuery, ftsQuery: string, limit?: number) =>
+    call<PaperSummary[]>("search_both", { query, ftsQuery, limit: limit ?? null }),
   reindexPaper: (id: string) => call<void>("reindex_paper", { id }),
   reindexAll: () => call<void>("reindex_all"),
   getFtsStatus: () => call<IndexStatusSummary>("get_fts_status"),
