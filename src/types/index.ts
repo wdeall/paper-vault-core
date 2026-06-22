@@ -175,3 +175,27 @@ export interface AppError {
   kind: string;
   message: string;
 }
+
+// M-D P4：PDF 批注
+// rect 为归一化坐标 (0-1)，相对于页面宽高
+// 后端存储为 JSON 字符串，前端类型用对象，api.ts 做反/序列化
+export interface AnnotationRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface Annotation {
+  id: string;
+  paper_id: string;
+  attachment_id: string | null;
+  kind: string; // "highlight" | "note" | "underline" | "strike"
+  page: number | null; // 1-indexed
+  rect: AnnotationRect | null;
+  color: string | null; // "yellow" | "red" | "green" | "blue" | "purple"
+  text: string | null;
+  comment: string | null;
+  created_at: number;
+  modified_at: number | null;
+}

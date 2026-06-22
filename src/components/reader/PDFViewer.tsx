@@ -1,11 +1,48 @@
-import { useEffect, useState } from "react";
-import { ExternalLink, Loader2, Search, ZoomIn, ZoomOut } from "lucide-react";
+// PDF 阅读器（pdf.js 渲染 + 文本选区 + 批注高亮）
+import { useEffect, useState, useRef, useCallback } from "react";
+import {
+  Loader2,
+  ZoomIn,
+  ZoomOut,
+  ExternalLink,
+  ChevronLeft,
+  ChevronRight,
+  MessageSquare,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { basename } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 import { useUIStore } from "@/stores/ui";
+import type { Annotation, AnnotationRect } from "@/types";
+
+import * as pdfjsLib from "pdfjs-dist";
+import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
+import PdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = PdfWorker;
+
+// 高亮颜色映射（name → tailwind class + rgba 用于覆盖层）
+const COLORS = [
+  { name: "yellow", class: "bg-yellow-400", rgba: "rgba(250, 204, 21, 0.35)" },
+  { name: "red", class: "bg-red-400", rgba: "rgba(248, 113, 113, 0.35)" },
+  { name: "green", class: "bg-green-400", rgba: "rgba(74, 222, 128, 0.35)" },
+  { name: "blue", class: "bg-blue-400", rgba: "rgba(96, 165, 250, 0.35)" },
+  { name: "purple", class: "bg-purple-400", rgba: "rgba(192, 132, 252, 0.35)" },
+];
+
+function colorRgba(name: string | null): string {
+  const c = COLORS.find((co) => co.name === name);
+  return c ? c.rgba : "rgba(250, 204, 21, 0.35)";
+}
+
+interface SelectionState {
+  text: string;
+  rect: AnnotationRect;
+  x: number; // 相对于 .pdf-page 的像素位置（用于定位 toolbar）
+  y: number;
+}
 
 interface Props {
   paperId: string;
@@ -13,35 +50,59 @@ interface Props {
   initialPage: number;
   onPageChange: (page: number) => void;
   onTotalPages: (n: number) => void;
+  annotations: Annotation[];
+  onAnnotationChange: () => void;
 }
 
-export function PDFViewer({ paperId, src, initialPage, onPageChange, onTotalPages }: Props) {
+export function PDFViewer({
+  paperId,
+  src,
+  initialPage,
+  onPageChange,
+  onTotalPages,
+  annotations,
+  onAnnotationChange,
+}: Props) {
   const showToast = useUIStore((s) => s.showToast);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [zoom, setZoom] = useState(100);
+  const [currentPage, setCurrentPage] = useState(initialPage);
+  const [totalPages, setTotalPages] = useState(0);
   const [pageInput, setPageInput] = useState(initialPage);
-  const [search, setSearch] = useState("");
-  const [blobUrl, setBlobUrl] = useState("");
+  const [selectionState, setSelectionState] = useState<SelectionState | null>(null);
+  const [commentMode, setCommentMode] = useState(false);
+  const [commentText, setCommentText] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [docReady, setDocReady] = useState(false);
 
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const textLayerRef = useRef<HTMLDivElement | null>(null);
+  const pdfDocRef = useRef<PDFDocumentProxy | null>(null);
+  const renderTaskRef = useRef<RenderTask | null>(null);
+  const textLayerInstanceRef = useRef<InstanceType<typeof pdfjsLib.TextLayer> | null>(null);
+
+  // 回调 ref，避免触发 effect 重新执行
+  const onTotalPagesRef = useRef(onTotalPages);
+  onTotalPagesRef.current = onTotalPages;
+  const onPageChangeRef = useRef(onPageChange);
+  onPageChangeRef.current = onPageChange;
+  const onAnnotationChangeRef = useRef(onAnnotationChange);
+  onAnnotationChangeRef.current = onAnnotationChange;
+
+  // 同步 initialPage → currentPage（用于跳转到批注）
   useEffect(() => {
-    setPageInput(initialPage);
+    setCurrentPage((prev) => (prev !== initialPage ? initialPage : prev));
+    setPageInput((prev) => (prev !== initialPage ? initialPage : prev));
   }, [initialPage]);
 
+  // 加载 PDF 文档
   useEffect(() => {
-    setLoading(true);
-    setError(null);
-    onTotalPages(0);
-  }, [src]);
-
-  useEffect(() => {
-    let revokedUrl = "";
     let cancelled = false;
-    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
-
-    setBlobUrl("");
+    setDocReady(false);
     setLoading(true);
     setError(null);
+    onTotalPagesRef.current(0);
 
     (async () => {
       try {
@@ -50,15 +111,18 @@ export function PDFViewer({ paperId, src, initialPage, onPageChange, onTotalPage
         }
         const bytes = await api.readPdfBytes(paperId);
         if (cancelled) return;
-        const blob = new Blob([new Uint8Array(bytes)], { type: "application/pdf" });
-        revokedUrl = URL.createObjectURL(blob);
-        setBlobUrl(revokedUrl);
+        const data = new Uint8Array(bytes);
+        const loadingTask = pdfjsLib.getDocument({ data });
+        const doc = await loadingTask.promise;
+        if (cancelled) {
+          void doc.destroy();
+          return;
+        }
+        pdfDocRef.current = doc;
+        setTotalPages(doc.numPages);
+        onTotalPagesRef.current(doc.numPages);
+        setDocReady(true);
         setLoading(false);
-        fallbackTimer = setTimeout(() => {
-          if (!cancelled) {
-            setLoading(false);
-          }
-        }, 800);
       } catch (e) {
         if (cancelled) return;
         setError((e as Error).message || String(e));
@@ -68,34 +132,214 @@ export function PDFViewer({ paperId, src, initialPage, onPageChange, onTotalPage
 
     return () => {
       cancelled = true;
-      if (fallbackTimer) {
-        clearTimeout(fallbackTimer);
+      if (renderTaskRef.current) {
+        renderTaskRef.current.cancel();
+        renderTaskRef.current = null;
       }
-      if (revokedUrl) {
-        URL.revokeObjectURL(revokedUrl);
+      if (textLayerInstanceRef.current) {
+        textLayerInstanceRef.current.cancel();
+        textLayerInstanceRef.current = null;
+      }
+      if (pdfDocRef.current) {
+        void pdfDocRef.current.destroy();
+        pdfDocRef.current = null;
       }
     };
   }, [paperId, src]);
 
-  function handleIframeLoad() {
-    setLoading(false);
-  }
+  // 渲染当前页（canvas + 文本层）
+  useEffect(() => {
+    if (!docReady) return;
+    const doc = pdfDocRef.current;
+    const canvas = canvasRef.current;
+    const textLayerDiv = textLayerRef.current;
+    if (!doc || !canvas || !textLayerDiv) return;
 
-  function handleIframeError() {
-    setLoading(false);
-    setError("内置 PDF 预览加载失败");
-  }
+    let cancelled = false;
 
-  function applyPage() {
-    const next = Math.max(1, pageInput || 1);
-    onPageChange(next);
-    showToast("info", "当前预览模式暂不支持精确页码跳转");
-  }
+    // 取消上一次渲染
+    if (renderTaskRef.current) {
+      renderTaskRef.current.cancel();
+      renderTaskRef.current = null;
+    }
+    if (textLayerInstanceRef.current) {
+      textLayerInstanceRef.current.cancel();
+      textLayerInstanceRef.current = null;
+    }
 
-  function applySearch() {
-    if (!search.trim()) return;
-    showToast("info", "当前预览模式暂不支持页内搜索");
-  }
+    (async () => {
+      try {
+        const page = await doc.getPage(currentPage);
+        if (cancelled) return;
+
+        const scale = zoom / 100;
+        const viewport = page.getViewport({ scale });
+        const outputScale = window.devicePixelRatio || 1;
+
+        canvas.width = Math.floor(viewport.width * outputScale);
+        canvas.height = Math.floor(viewport.height * outputScale);
+        canvas.style.width = `${Math.floor(viewport.width)}px`;
+        canvas.style.height = `${Math.floor(viewport.height)}px`;
+
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+
+        const transform =
+          outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : undefined;
+        const renderTask = page.render({ canvasContext: ctx, viewport, transform });
+        renderTaskRef.current = renderTask;
+        await renderTask.promise;
+        if (cancelled) return;
+
+        // 渲染文本层（用于文本选区）
+        textLayerDiv.innerHTML = "";
+        textLayerDiv.style.width = `${Math.floor(viewport.width)}px`;
+        textLayerDiv.style.height = `${Math.floor(viewport.height)}px`;
+
+        try {
+          const textContent = await page.getTextContent();
+          if (cancelled) return;
+          const textLayer = new pdfjsLib.TextLayer({
+            textContentSource: textContent,
+            container: textLayerDiv,
+            viewport,
+          });
+          textLayerInstanceRef.current = textLayer;
+          await textLayer.render();
+        } catch (e) {
+          if (cancelled) return;
+          // 文本层渲染失败不影响 PDF 查看，仅无法选中文本
+          console.error("text layer render", e);
+        }
+      } catch (e) {
+        if (cancelled) return;
+        // 渲染取消等非致命错误
+        if (e instanceof Error && e.name === "RenderingCancelledException") return;
+        console.error("page render", e);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (renderTaskRef.current) {
+        renderTaskRef.current.cancel();
+        renderTaskRef.current = null;
+      }
+      if (textLayerInstanceRef.current) {
+        textLayerInstanceRef.current.cancel();
+        textLayerInstanceRef.current = null;
+      }
+    };
+  }, [docReady, currentPage, zoom]);
+
+  // 翻页/缩放时清除选区
+  useEffect(() => {
+    setSelectionState(null);
+    setCommentMode(false);
+    setCommentText("");
+  }, [currentPage, zoom]);
+
+  // 选区监听：mouseup 时检查是否有选中文本
+  useEffect(() => {
+    function handleMouseUp() {
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed) {
+        setSelectionState(null);
+        setCommentMode(false);
+        return;
+      }
+      const textLayer = textLayerRef.current;
+      if (!textLayer) return;
+      const range = selection.getRangeAt(0);
+      if (!textLayer.contains(range.commonAncestorContainer)) {
+        return;
+      }
+      const text = selection.toString().trim();
+      if (!text) {
+        setSelectionState(null);
+        return;
+      }
+      const selRect = range.getBoundingClientRect();
+      const layerRect = textLayer.getBoundingClientRect();
+      if (selRect.width === 0 || selRect.height === 0) return;
+      // 归一化坐标（0-1，相对于页面尺寸）
+      const rect: AnnotationRect = {
+        x: (selRect.left - layerRect.left) / layerRect.width,
+        y: (selRect.top - layerRect.top) / layerRect.height,
+        w: selRect.width / layerRect.width,
+        h: selRect.height / layerRect.height,
+      };
+      // toolbar 定位（相对于 .pdf-page 容器）
+      const x = selRect.left - layerRect.left + selRect.width / 2;
+      const y = selRect.top - layerRect.top;
+      setSelectionState({ text, rect, x, y });
+    }
+    document.addEventListener("mouseup", handleMouseUp);
+    return () => document.removeEventListener("mouseup", handleMouseUp);
+  }, []);
+
+  const goToPage = useCallback(
+    (page: number) => {
+      const next = Math.max(1, Math.min(totalPages || 1, page));
+      setCurrentPage(next);
+      setPageInput(next);
+      onPageChangeRef.current(next);
+    },
+    [totalPages],
+  );
+
+  const handleCreateHighlight = useCallback(
+    async (color: string) => {
+      if (!selectionState) return;
+      setCreating(true);
+      try {
+        await api.createAnnotation({
+          paperId,
+          kind: "highlight",
+          page: currentPage,
+          rect: selectionState.rect,
+          color,
+          text: selectionState.text,
+          comment: null,
+        });
+        showToast("success", "已添加高亮");
+        window.getSelection()?.removeAllRanges();
+        setSelectionState(null);
+        onAnnotationChangeRef.current();
+      } catch (e) {
+        showToast("error", `添加失败: ${(e as Error).message}`);
+      } finally {
+        setCreating(false);
+      }
+    },
+    [selectionState, paperId, currentPage, showToast],
+  );
+
+  const handleCreateNote = useCallback(async () => {
+    if (!selectionState) return;
+    setCreating(true);
+    try {
+      await api.createAnnotation({
+        paperId,
+        kind: "note",
+        page: currentPage,
+        rect: selectionState.rect,
+        color: null,
+        text: selectionState.text,
+        comment: commentText || null,
+      });
+      showToast("success", "已添加笔记");
+      window.getSelection()?.removeAllRanges();
+      setSelectionState(null);
+      setCommentMode(false);
+      setCommentText("");
+      onAnnotationChangeRef.current();
+    } catch (e) {
+      showToast("error", `添加失败: ${(e as Error).message}`);
+    } finally {
+      setCreating(false);
+    }
+  }, [selectionState, paperId, currentPage, commentText, showToast]);
 
   function openNative() {
     void api.openPdf(paperId).catch((e) => {
@@ -105,45 +349,62 @@ export function PDFViewer({ paperId, src, initialPage, onPageChange, onTotalPage
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex shrink-0 items-center gap-2 border-b border-border bg-card p-2">
+      {/* 工具栏 */}
+      <div className="flex shrink-0 items-center gap-1 border-b border-border bg-card p-2">
+        <Button
+          size="icon"
+          variant="ghost"
+          onClick={() => goToPage(currentPage - 1)}
+          disabled={currentPage <= 1}
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
         <Input
           type="number"
           value={pageInput}
           onChange={(e) => setPageInput(Number(e.target.value))}
-          onBlur={applyPage}
+          onBlur={() => goToPage(pageInput)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") goToPage(pageInput);
+          }}
           className="h-7 w-16 text-center text-xs"
         />
-        <span className="text-xs text-muted-foreground">页</span>
-        <div className="mx-2 h-5 w-px bg-border" />
-        <Button size="icon" variant="ghost" onClick={() => setZoom((z) => Math.max(50, z - 10))}>
+        <span className="text-xs text-muted-foreground">/ {totalPages || "—"}</span>
+        <Button
+          size="icon"
+          variant="ghost"
+          onClick={() => goToPage(currentPage + 1)}
+          disabled={currentPage >= totalPages}
+        >
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+        <div className="mx-1 h-5 w-px bg-border" />
+        <Button
+          size="icon"
+          variant="ghost"
+          onClick={() => setZoom((z) => Math.max(50, z - 10))}
+        >
           <ZoomOut className="h-4 w-4" />
         </Button>
         <span className="w-12 text-center text-xs">{zoom}%</span>
-        <Button size="icon" variant="ghost" onClick={() => setZoom((z) => Math.min(200, z + 10))}>
+        <Button
+          size="icon"
+          variant="ghost"
+          onClick={() => setZoom((z) => Math.min(300, z + 10))}
+        >
           <ZoomIn className="h-4 w-4" />
         </Button>
-        <div className="ml-2 flex-1">
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") applySearch();
-            }}
-            placeholder="页内搜索（暂不支持）"
-            className="h-7"
-          />
+        <div className="ml-auto">
+          <Button size="icon" variant="ghost" onClick={openNative} disabled={!src}>
+            <ExternalLink className="h-4 w-4" />
+          </Button>
         </div>
-        <Button size="icon" variant="ghost" onClick={applySearch}>
-          <Search className="h-4 w-4" />
-        </Button>
-        <Button size="icon" variant="ghost" onClick={openNative} disabled={!src}>
-          <ExternalLink className="h-4 w-4" />
-        </Button>
       </div>
 
-      <div className={cn("relative flex-1 overflow-hidden bg-muted/30")}>
+      {/* PDF 渲染区 */}
+      <div className="relative flex-1 overflow-auto bg-muted/30">
         {loading && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-background/80 text-muted-foreground">
+          <div className="absolute inset-0 z-40 flex items-center justify-center gap-2 bg-background/80 text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
             加载 PDF...
           </div>
@@ -154,18 +415,107 @@ export function PDFViewer({ paperId, src, initialPage, onPageChange, onTotalPage
             加载失败: {error}
             <div className="mt-1 text-xs">文件: {basename(src)}</div>
           </div>
-        ) : blobUrl ? (
-          <iframe
-            title={basename(src) || "pdf-preview"}
-            src={blobUrl}
-            onLoad={handleIframeLoad}
-            onError={handleIframeError}
-            className="h-full w-full border-0"
-            style={{ zoom: `${zoom}%` }}
-          />
         ) : (
-          <div className="m-4 rounded border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
-            加载失败: PDF 路径为空
+          <div className="flex min-h-full items-start justify-center p-4">
+            <div className="pdf-page">
+              <canvas ref={canvasRef} />
+
+              {/* 批注高亮覆盖层 */}
+              <div className="pointer-events-none absolute inset-0 z-10">
+                {annotations
+                  .filter((a) => a.page === currentPage && a.rect)
+                  .map((a) => (
+                    <div
+                      key={a.id}
+                      className="absolute"
+                      style={{
+                        left: `${a.rect!.x * 100}%`,
+                        top: `${a.rect!.y * 100}%`,
+                        width: `${a.rect!.w * 100}%`,
+                        height: `${a.rect!.h * 100}%`,
+                        backgroundColor: colorRgba(a.color),
+                      }}
+                    />
+                  ))}
+              </div>
+
+              {/* 文本层（用于选区） */}
+              <div ref={textLayerRef} className="textLayer" />
+
+              {/* 选区 mini toolbar */}
+              {selectionState && !commentMode && (
+                <div
+                  className="absolute z-30 flex items-center gap-1 rounded-md border border-border bg-popover p-1 shadow-md"
+                  style={{
+                    left: `${selectionState.x}px`,
+                    top: `${selectionState.y - 40}px`,
+                    transform: "translateX(-50%)",
+                  }}
+                  onMouseDown={(e) => e.preventDefault()}
+                >
+                  {COLORS.map((c) => (
+                    <button
+                      key={c.name}
+                      type="button"
+                      disabled={creating}
+                      className={cn(
+                        "h-5 w-5 rounded-full border border-border transition-opacity hover:opacity-80 disabled:opacity-50",
+                        c.class,
+                      )}
+                      title={c.name}
+                      onClick={() => handleCreateHighlight(c.name)}
+                    />
+                  ))}
+                  <div className="mx-1 h-4 w-px bg-border" />
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-6 w-6"
+                    disabled={creating}
+                    onClick={() => setCommentMode(true)}
+                    title="添加评论"
+                  >
+                    <MessageSquare className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              )}
+
+              {/* 评论输入 */}
+              {selectionState && commentMode && (
+                <div
+                  className="absolute z-40 w-56 rounded-md border border-border bg-popover p-2 shadow-lg"
+                  style={{
+                    left: `${selectionState.x}px`,
+                    top: `${selectionState.y - 120}px`,
+                    transform: "translateX(-50%)",
+                  }}
+                  onMouseDown={(e) => e.preventDefault()}
+                >
+                  <textarea
+                    value={commentText}
+                    onChange={(e) => setCommentText(e.target.value)}
+                    placeholder="输入评论..."
+                    className="mb-1 h-16 w-full resize-none rounded border border-input bg-background p-1 text-xs"
+                    autoFocus
+                  />
+                  <div className="flex justify-end gap-1">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setCommentMode(false);
+                        setCommentText("");
+                      }}
+                    >
+                      取消
+                    </Button>
+                    <Button size="sm" onClick={handleCreateNote} disabled={creating}>
+                      提交
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

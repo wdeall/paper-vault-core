@@ -107,6 +107,11 @@ pub fn run() {
             commands::export_markdown_citation,
             commands::load_seed_data,
             commands::get_fts_status,
+            commands::create_annotation,
+            commands::list_annotations,
+            commands::update_annotation,
+            commands::delete_annotation,
+            commands::sync_annotations_to_note,
         ])
         .run(tauri::generate_context!())
         .expect("error while running PaperVault");

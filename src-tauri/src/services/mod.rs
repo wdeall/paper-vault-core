@@ -11,3 +11,4 @@ pub mod preset;
 pub mod identifier;
 pub mod resolver;
 pub mod merge;
+pub mod annotation;

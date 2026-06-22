@@ -8,6 +8,7 @@ pub mod ai;
 pub mod export;
 pub mod settings;
 pub mod indexer;
+pub mod annotation;
 
 pub use init::*;
 pub use papers::*;
@@ -16,3 +17,4 @@ pub use ai::*;
 pub use export::*;
 pub use settings::*;
 pub use indexer::*;
+pub use annotation::*;

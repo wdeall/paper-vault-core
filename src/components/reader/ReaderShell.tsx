@@ -1,14 +1,15 @@
-// Reader 工作台：PDF 阅读器 + Markdown 笔记并排
+// Reader 工作台：PDF 阅读器 + 批注侧边栏 + Markdown 笔记
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Save, FilePlus2, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PDFViewer } from "./PDFViewer";
+import { AnnotationSidebar } from "./AnnotationSidebar";
 import { NoteEditor } from "@/components/notes/NoteEditor";
 import { api } from "@/lib/api";
 import { useUIStore } from "@/stores/ui";
-import type { PaperDetail } from "@/types";
+import type { Annotation, PaperDetail } from "@/types";
 
 interface Props {
   paperId: string;
@@ -22,6 +23,9 @@ export function ReaderShell({ paperId }: Props) {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
   const [savingProgress, setSavingProgress] = useState(false);
+  // M-D P4：批注状态
+  const [annotations, setAnnotations] = useState<Annotation[]>([]);
+  const [annotationVersion, setAnnotationVersion] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -43,6 +47,23 @@ export function ReaderShell({ paperId }: Props) {
       cancelled = true;
     };
   }, [paperId, showToast]);
+
+  // 加载批注列表（annotationVersion 变化时重新加载）
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .listAnnotations(paperId)
+      .then((anns) => {
+        if (cancelled) return;
+        setAnnotations(anns);
+      })
+      .catch((e) => {
+        console.error("list annotations", e);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [paperId, annotationVersion]);
 
   // 防抖保存阅读进度
   const saveProgress = useCallback(
@@ -78,6 +99,16 @@ export function ReaderShell({ paperId }: Props) {
     },
     [currentPage, saveProgress],
   );
+
+  // 批注变更 → 重新加载批注列表
+  const handleAnnotationChange = useCallback(() => {
+    setAnnotationVersion((v) => v + 1);
+  }, []);
+
+  // 跳转到批注所在页（rect 已在 PDFViewer 的高亮覆盖层中渲染）
+  const handleJumpToAnnotation = useCallback((page: number) => {
+    setCurrentPage(page);
+  }, []);
 
   async function handleCreateNote() {
     try {
@@ -129,16 +160,29 @@ export function ReaderShell({ paperId }: Props) {
       </header>
 
       <div className="flex flex-1 overflow-hidden">
+        {/* PDF 阅读区 */}
         <section className="flex-1 border-r border-border bg-muted/30">
           <PDFViewer
             paperId={paperId}
             src={detail.pdf_path}
-            initialPage={detail.reading_progress?.current_page ?? 1}
+            initialPage={currentPage}
             onPageChange={handlePageChange}
             onTotalPages={handleTotalPages}
+            annotations={annotations}
+            onAnnotationChange={handleAnnotationChange}
           />
         </section>
-        <section className="w-[44%] min-w-[420px] max-w-[720px] overflow-y-auto">
+        {/* 批注侧边栏 */}
+        <section className="w-[240px] shrink-0">
+          <AnnotationSidebar
+            paperId={paperId}
+            annotations={annotations}
+            onAnnotationChange={handleAnnotationChange}
+            onJumpToAnnotation={handleJumpToAnnotation}
+          />
+        </section>
+        {/* 笔记编辑区 */}
+        <section className="flex-1 min-w-[420px] overflow-y-auto">
           {hasNote ? (
             <NoteEditor paperId={paperId} />
           ) : (

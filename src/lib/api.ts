@@ -6,6 +6,8 @@ import type {
   AIProviderConfig,
   AIResult,
   AISkillPreset,
+  Annotation,
+  AnnotationRect,
   Collection,
   DuplicateCandidate,
   ImportResult,
@@ -65,6 +67,45 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
     }
     throw new ApiError("unknown", String(e));
   }
+}
+
+// 后端返回的批注原始结构（rect 为 JSON 字符串），需在前端反序列化为对象
+interface RawAnnotation {
+  id: string;
+  paper_id: string;
+  attachment_id: string | null;
+  kind: string;
+  page: number | null;
+  rect: string | null;
+  color: string | null;
+  text: string | null;
+  comment: string | null;
+  created_at: number;
+  modified_at: number | null;
+}
+
+function parseAnnotation(raw: RawAnnotation): Annotation {
+  let rect: AnnotationRect | null = null;
+  if (raw.rect) {
+    try {
+      rect = JSON.parse(raw.rect) as AnnotationRect;
+    } catch {
+      rect = null;
+    }
+  }
+  return {
+    id: raw.id,
+    paper_id: raw.paper_id,
+    attachment_id: raw.attachment_id,
+    kind: raw.kind,
+    page: raw.page,
+    rect,
+    color: raw.color,
+    text: raw.text,
+    comment: raw.comment,
+    created_at: raw.created_at,
+    modified_at: raw.modified_at,
+  };
 }
 
 // === Init / Vault ===
@@ -182,4 +223,47 @@ export const api = {
   exportBibtex: (ids: string[]) => call<string>("export_bibtex", { ids }),
   exportMarkdownCitation: (ids: string[]) =>
     call<string>("export_markdown_citation", { ids }),
+
+  // === Annotations (M-D P4) ===
+  // 后端 rect 字段为 JSON 字符串，这里做序列化 / 反序列化
+  createAnnotation: (params: {
+    paperId: string;
+    kind: string;
+    page: number | null;
+    rect: AnnotationRect | null;
+    color: string | null;
+    text: string | null;
+    comment: string | null;
+  }) =>
+    call<RawAnnotation>("create_annotation", {
+      paperId: params.paperId,
+      kind: params.kind,
+      page: params.page,
+      rect: params.rect ? JSON.stringify(params.rect) : null,
+      color: params.color,
+      text: params.text,
+      comment: params.comment,
+    }).then(parseAnnotation),
+  listAnnotations: (paperId: string) =>
+    call<RawAnnotation[]>("list_annotations", { paperId }).then((anns) =>
+      anns.map(parseAnnotation),
+    ),
+  updateAnnotation: (params: {
+    id: string;
+    color?: string | null;
+    text?: string | null;
+    comment?: string | null;
+    rect?: AnnotationRect | null;
+  }) =>
+    call<RawAnnotation>("update_annotation", {
+      id: params.id,
+      color: params.color ?? null,
+      text: params.text ?? null,
+      comment: params.comment ?? null,
+      rect: params.rect ? JSON.stringify(params.rect) : null,
+    }).then(parseAnnotation),
+  deleteAnnotation: (id: string) =>
+    call<void>("delete_annotation", { id }),
+  syncAnnotationsToNote: (paperId: string) =>
+    call<void>("sync_annotations_to_note", { paperId }),
 };

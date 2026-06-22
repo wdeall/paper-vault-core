@@ -158,7 +158,6 @@ pub struct Attachment {
     pub status: String, // "active" / "missing" / "deleted"
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Annotation {
     pub id: String,

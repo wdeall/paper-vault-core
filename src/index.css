@@ -64,7 +64,7 @@
 /* PDF.js 文本层样式（确保可选中） */
 .pdf-page {
   position: relative;
-  margin: 0 auto;
+  display: inline-block;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   background: white;
 }
@@ -78,8 +78,12 @@
   right: 0;
   bottom: 0;
   overflow: hidden;
-  opacity: 0.25;
+  opacity: 1;
   line-height: 1;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  z-index: 20;
 }
 .pdf-page .textLayer span,
 .pdf-page .textLayer br {
