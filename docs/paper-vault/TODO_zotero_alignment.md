@@ -7,38 +7,22 @@
 
 ## 高优先级 (需尽快处理)
 
-### 1. 启动后台重复扫描 + 通知 (SPEC §7.3 缺口)
+### 1. ✅ 启动后台重复扫描 + 通知 (SPEC §7.3 缺口) [已完成 commit c1034c0]
 
-**现状**: `check_duplicates` 命令存在 (手动触发),但 SPEC 要求"启动后台扫发现重复时通知区提示"。
-**需要做**:
-- 在 `lib.rs` setup() 启动后异步调 `services::duplicate::find_duplicates(&vault)`
-- 发现重复时通过 Tauri event 通知前端
-- 前端在通知区显示"发现 N 篇可能重复的论文"
+**已实现**:
+- `duplicates.rs`: 新增 `scan_all()` 全库扫描 (DOI + 标题归一化) + `DuplicatePair` 结构 + 3 测试
+- `lib.rs`: setup() 中 `tauri::async_runtime::spawn` 异步扫描 + `app.emit("duplicates-found", &pairs)`
+- `App.tsx`: `listen<DuplicatePair[]>("duplicates-found")` + toast 通知 (ttlSec 10)
+- `stores/ui.ts`: `showToast` options `label`/`onClick` 改可选 (支持纯提示场景)
+- 测试: cargo test 110 passed
 
-**操作指引**:
-```rust
-// lib.rs setup() 里加:
-tauri::async_runtime::spawn(async move {
-    if let Some(state) = app.try_state::<AppState>() {
-        if let Some(path) = vault::load_last_vault_path(app.handle()) {
-            if let Ok(dups) = services::duplicate::find_duplicates(&path) {
-                if !dups.is_empty() {
-                    app.emit("duplicates-found", &dups).ok();
-                }
-            }
-        }
-    }
-});
-```
+### 2. ✅ SearchPanel 接入路由 (M-C 遗留) [已完成 commit c1034c0]
 
-### 2. SearchPanel 接入路由 (M-C 遗留)
-
-**现状**: `SearchPanel.tsx` 已实现三模式搜索 UI,但无任何组件 import 它。
-**需要做**:
-- 在 `LibraryShell.tsx` 或路由中挂载 SearchPanel
-- 或在 TopBar 搜索按钮点击时弹出 SearchPanel (类似 SearchResults 的弹窗模式)
-
-**操作指引**: 在 `LibraryShell.tsx` 加 `<SearchPanel />` 或在 TopBar 搜索图标 onClick 时切换到搜索页面。
+**已实现**:
+- `stores/ui.ts`: 新增 `searchPanelOpen` / `toggleSearchPanel` / `setSearchPanelOpen`
+- `TopBar.tsx`: 加 `SlidersHorizontal` 切换按钮 (variant 随状态切换) + `handleSearch` 改为打开面板
+- `LibraryShell.tsx`: `{searchPanelOpen && <SearchPanel />}` 条件渲染
+- 测试: tsc pass
 
 ### 3. 手动验收 P4 PDF 批注
 
