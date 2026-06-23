@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import { open } from "@tauri-apps/plugin-dialog";
+import { listen } from "@tauri-apps/api/event";
 import { api, ApiError } from "@/lib/api";
 import { isTauri } from "@/lib/tauri";
 import { useUIStore } from "@/stores/ui";
@@ -11,6 +12,16 @@ import { SettingsPage } from "@/routes/SettingsPage";
 import { VaultInitDialog } from "@/components/VaultInitDialog";
 import { Toaster } from "@/components/Toaster";
 
+// 后端 emit 的重复对类型
+interface DuplicatePair {
+  paper_id_a: string;
+  title_a: string;
+  paper_id_b: string;
+  title_b: string;
+  reason: string;
+  confidence: string;
+}
+
 export function App() {
   const [vaultReady, setVaultReady] = useState<boolean | null>(null);
   const showToast = useUIStore((s) => s.showToast);
@@ -18,6 +29,24 @@ export function App() {
   useEffect(() => {
     checkVault();
   }, []);
+
+  // 监听后端启动重复扫描结果 (SPEC §7.3)
+  useEffect(() => {
+    if (!vaultReady || !isTauri()) return;
+    const unlisten = listen<DuplicatePair[]>("duplicates-found", (event) => {
+      const pairs = event.payload;
+      if (pairs.length > 0) {
+        showToast(
+          "warning",
+          `发现 ${pairs.length} 组疑似重复论文，建议在设置中检查并合并`,
+          { ttlSec: 10 },
+        );
+      }
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, [vaultReady, showToast]);
 
   async function checkVault() {
     if (!isTauri()) {

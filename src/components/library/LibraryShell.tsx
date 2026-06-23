@@ -5,6 +5,7 @@ import { CollectionsPane } from "./CollectionsPane";
 import { PaperListPane } from "./PaperListPane";
 import { PaperDetailPane } from "./PaperDetailPane";
 import { TopBar } from "./TopBar";
+import { SearchPanel } from "@/components/search/SearchPanel";
 import { usePaperStore } from "@/stores/paper";
 import { useUIStore } from "@/stores/ui";
 
@@ -12,6 +13,7 @@ export function LibraryShell() {
   const selectedPaperId = usePaperStore((s) => s.selectedPaperId);
   const loadCollections = usePaperStore((s) => s.loadCollections);
   const showToast = useUIStore((s) => s.showToast);
+  const searchPanelOpen = useUIStore((s) => s.searchPanelOpen);
 
   useEffect(() => {
     loadCollections().catch((e) => {
@@ -22,6 +24,7 @@ export function LibraryShell() {
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
       <TopBar />
+      {searchPanelOpen && <SearchPanel />}
       <div className="flex flex-1 overflow-hidden">
         <aside className="w-60 shrink-0 border-r border-border overflow-y-auto">
           <CollectionsPane />

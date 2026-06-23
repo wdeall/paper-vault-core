@@ -16,7 +16,7 @@ mod error;
 mod types;
 
 use std::sync::Arc;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 /// 全局 AppState — 持有 vault 路径与运行时缓存
 pub struct AppState {
@@ -57,6 +57,20 @@ pub fn run() {
                         if let Err(e) = services::merge::cleanup_old_merge_log(&path) {
                             log::warn!("清理过期 merge_log 失败: {e}");
                         }
+
+                        // 启动后台扫描全库重复论文（SPEC §7.3）
+                        let app_handle = app.handle().clone();
+                        let scan_path = path.clone();
+                        tauri::async_runtime::spawn(async move {
+                            match duplicates::scan_all(&scan_path) {
+                                Ok(pairs) if !pairs.is_empty() => {
+                                    log::info!("启动扫描发现 {} 组疑似重复", pairs.len());
+                                    let _ = app_handle.emit("duplicates-found", &pairs);
+                                }
+                                Ok(_) => {}
+                                Err(e) => log::warn!("启动重复扫描失败: {e}"),
+                            }
+                        });
                     }
                 }
             }

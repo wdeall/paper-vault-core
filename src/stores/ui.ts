@@ -14,27 +14,33 @@ export interface Toast {
 
 interface UIState {
   sidebarOpen: boolean;
+  searchPanelOpen: boolean;
   theme: "light" | "dark";
   toasts: Toast[];
   showToast: (
     type: Toast["type"],
     message: string,
-    options?: { label: string; onClick: () => void; ttlSec?: number },
+    options?: { label?: string; onClick?: () => void; ttlSec?: number },
   ) => void;
   removeToast: (id: number) => void;
   setTheme: (t: "light" | "dark") => void;
   toggleSidebar: () => void;
+  toggleSearchPanel: () => void;
+  setSearchPanelOpen: (open: boolean) => void;
 }
 
 let nextId = 1;
 
 export const useUIStore = create<UIState>((set) => ({
   sidebarOpen: true,
+  searchPanelOpen: false,
   theme: "dark",
   toasts: [],
   showToast: (type, message, options) => {
     const id = nextId++;
-    const action = options ? { label: options.label, onClick: options.onClick } : undefined;
+    const action = options?.label && options?.onClick
+      ? { label: options.label, onClick: options.onClick }
+      : undefined;
     const ttlMs = options?.ttlSec ? options.ttlSec * 1000 : 4000;
     set((s) => ({ toasts: [...s.toasts, { id, type, message, action, ttlMs }] }));
     setTimeout(() => {
@@ -48,4 +54,6 @@ export const useUIStore = create<UIState>((set) => ({
     document.documentElement.classList.toggle("dark", t === "dark");
   },
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
+  toggleSearchPanel: () => set((s) => ({ searchPanelOpen: !s.searchPanelOpen })),
+  setSearchPanelOpen: (open) => set({ searchPanelOpen: open }),
 }));

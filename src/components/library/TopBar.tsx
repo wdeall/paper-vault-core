@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Settings, FilePlus2, Hash, Search } from "lucide-react";
+import { Settings, FilePlus2, Hash, Search, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
@@ -16,6 +16,8 @@ export function TopBar() {
   const navigate = useNavigate();
   const importPapers = usePaperStore((s) => s.importPdfs);
   const showToast = useUIStore((s) => s.showToast);
+  const searchPanelOpen = useUIStore((s) => s.searchPanelOpen);
+  const toggleSearchPanel = useUIStore((s) => s.toggleSearchPanel);
   // M-C P3：TopBar 仅作为全文搜索快捷入口，复用 fulltextQuery 字段
   const setFulltextQuery = useSearchStore((s) => s.setFulltextQuery);
   const setMode = useSearchStore((s) => s.setMode);
@@ -68,12 +70,13 @@ export function TopBar() {
     }
   }
 
-  // TopBar 搜索：固定为 fulltext 模式，触发后跳转到 library 页面
+  // TopBar 搜索：固定为 fulltext 模式，触发后展开搜索面板
   async function handleSearch() {
     if (!fulltextQuery.trim()) return;
     setMode("fulltext");
     try {
       await runSearch();
+      useUIStore.getState().setSearchPanelOpen(true);
       navigate("/library");
     } catch (e) {
       showToast("error", `搜索失败: ${(e as Error).message}`);
@@ -118,6 +121,14 @@ export function TopBar() {
           />
         </div>
       </div>
+      <Button
+        variant={searchPanelOpen ? "default" : "ghost"}
+        size="icon"
+        onClick={toggleSearchPanel}
+        title="结构化搜索"
+      >
+        <SlidersHorizontal className="h-4 w-4" />
+      </Button>
       <Button
         variant="ghost"
         size="icon"
