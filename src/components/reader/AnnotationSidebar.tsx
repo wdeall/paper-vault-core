@@ -7,6 +7,8 @@ import {
   X,
   RefreshCw,
   Filter,
+  Underline,
+  Strikethrough,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -75,8 +77,8 @@ export function AnnotationSidebar({
 
   // 点击批注 → 跳转到对应页
   function handleClickAnnotation(a: Annotation) {
-    if (a.page != null && a.rect) {
-      onJumpToAnnotation(a.page, a.rect);
+    if (a.page != null && a.rect && a.rect.length > 0) {
+      onJumpToAnnotation(a.page, a.rect[0]);
     }
   }
 
@@ -190,15 +192,25 @@ export function AnnotationSidebar({
                   key={a.id}
                   className="group rounded-md border border-border bg-background p-2 text-xs transition-colors hover:border-primary/40"
                 >
-                  {/* 头部：颜色 + 页码 + 时间 + 操作 */}
+                  {/* 头部：kind 图标 + 页码 + 时间 + 操作 */}
                   <div className="mb-1 flex items-center gap-1.5">
-                    <span
-                      className={cn(
-                        "h-2.5 w-2.5 shrink-0 rounded-full",
-                        a.color ? COLOR_DOT[a.color] : "bg-muted",
-                      )}
-                      title={a.color ? COLOR_LABEL[a.color] : "无颜色"}
-                    />
+                    {a.kind === "underline" ? (
+                      <span title="下划线" className="shrink-0">
+                        <Underline className="h-3 w-3" />
+                      </span>
+                    ) : a.kind === "strike" ? (
+                      <span title="删除线" className="shrink-0">
+                        <Strikethrough className="h-3 w-3" />
+                      </span>
+                    ) : (
+                      <span
+                        className={cn(
+                          "h-2.5 w-2.5 shrink-0 rounded-full",
+                          a.color ? COLOR_DOT[a.color] : "bg-muted",
+                        )}
+                        title={a.color ? COLOR_LABEL[a.color] : "无颜色"}
+                      />
+                    )}
                     {a.page != null && (
                       <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
                         P.{a.page}

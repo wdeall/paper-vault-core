@@ -82,15 +82,18 @@ pub fn reindex_all(vault: &Path) -> AppResult<()> {
 /// 索引状态汇总。indexed = papers_fts 行数。
 pub fn status_summary(vault: &Path) -> AppResult<IndexStatusSummary> {
     let conn = db::open(vault)?;
-    let mut sum = IndexStatusSummary::default();
-    sum.total = conn
-        .query_row("SELECT COUNT(*) FROM papers", [], |r| r.get(0))?;
+    let total: i64 = conn.query_row("SELECT COUNT(*) FROM papers", [], |r| r.get(0))?;
     // indexed = papers_fts 行数 (与 papers 表 JOIN 防止 FTS 残留)
-    sum.indexed = conn.query_row(
+    let indexed: i64 = conn.query_row(
         "SELECT COUNT(*) FROM papers WHERE id IN (SELECT paper_id FROM papers_fts)",
         [],
         |r| r.get(0),
     )?;
+    let mut sum = IndexStatusSummary {
+        total,
+        indexed,
+        ..Default::default()
+    };
     let mut stmt = conn.prepare("SELECT status, COUNT(*) FROM index_status GROUP BY status")?;
     let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
     for r in rows {

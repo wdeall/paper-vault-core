@@ -6,6 +6,8 @@
 //! - `mode` 入参已废弃（删除始终硬删；P3 引入软删除 / 回收站）。
 //! - 作者 / 关键词 / 状态 走 `services::paper`（结构化表）。
 
+use crate::commands::common::require_vault;
+use crate::duplicates::DuplicatePair;
 use crate::error::{AppError, AppResult};
 use crate::pdf;
 use crate::services::identifier::{self, Scheme};
@@ -20,14 +22,6 @@ use std::path::Path;
 use tauri::State;
 
 use crate::AppState;
-
-fn require_vault<'a>(state: &'a State<'_, AppState>) -> AppResult<std::path::PathBuf> {
-    let guard = state.vault_path.read();
-    guard
-        .as_ref()
-        .cloned()
-        .ok_or_else(|| AppError::Config("vault 未初始化".into()))
-}
 
 #[tauri::command]
 pub async fn import_pdf(
@@ -491,4 +485,11 @@ pub async fn import_by_identifier(
         paper: detail.paper,
         duplicates,
     })
+}
+
+/// 全库重复扫描（前端启动时主动调用，避免后端 setup emit 早于前端 listen 的时序竞态）。
+#[tauri::command]
+pub async fn scan_duplicates(state: State<'_, AppState>) -> AppResult<Vec<DuplicatePair>> {
+    let vault = require_vault(&state)?;
+    crate::duplicates::scan_all(&vault)
 }

@@ -111,6 +111,7 @@ pub fn run() {
             commands::search_both,
             commands::reindex_paper,
             commands::reindex_all,
+            commands::scan_duplicates,
             commands::get_ai_presets,
             commands::update_ai_preset,
             commands::reset_ai_preset,

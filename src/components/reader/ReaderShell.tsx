@@ -1,7 +1,7 @@
 // Reader 工作台：PDF 阅读器 + 批注侧边栏 + Markdown 笔记
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Save, FilePlus2, BookOpen } from "lucide-react";
+import { ArrowLeft, Save, FilePlus2, BookOpen, PanelRightClose, PanelRightOpen, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PDFViewer } from "./PDFViewer";
@@ -26,6 +26,9 @@ export function ReaderShell({ paperId }: Props) {
   // M-D P4：批注状态
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [annotationVersion, setAnnotationVersion] = useState(0);
+  // 三栏可收起
+  const [notesCollapsed, setNotesCollapsed] = useState(false);
+  const [annotationsCollapsed, setAnnotationsCollapsed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -160,8 +163,8 @@ export function ReaderShell({ paperId }: Props) {
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* PDF 阅读区 */}
-        <section className="flex-1 border-r border-border bg-muted/30">
+        {/* PDF 阅读区（占比更大，不收起） */}
+        <section className="flex-[2_1_0%] min-w-[400px] border-r border-border bg-muted/30">
           <PDFViewer
             paperId={paperId}
             src={detail.pdf_path}
@@ -172,29 +175,93 @@ export function ReaderShell({ paperId }: Props) {
             onAnnotationChange={handleAnnotationChange}
           />
         </section>
-        {/* 批注侧边栏 */}
-        <section className="w-[240px] shrink-0">
-          <AnnotationSidebar
-            paperId={paperId}
-            annotations={annotations}
-            onAnnotationChange={handleAnnotationChange}
-            onJumpToAnnotation={handleJumpToAnnotation}
-          />
-        </section>
-        {/* 笔记编辑区 */}
-        <section className="flex-1 min-w-[420px] overflow-y-auto">
-          {hasNote ? (
-            <NoteEditor paperId={paperId} />
+        {/* 批注侧边栏（可收起） */}
+        <section
+          className={
+            annotationsCollapsed
+              ? "w-[40px] shrink-0 border-l border-border"
+              : "w-[240px] shrink-0 border-l border-border"
+          }
+        >
+          {annotationsCollapsed ? (
+            <button
+              className="flex h-full w-full flex-col items-center justify-center text-muted-foreground hover:text-foreground"
+              onClick={() => setAnnotationsCollapsed(false)}
+              title="展开批注栏"
+            >
+              <PanelRightOpen className="h-4 w-4" />
+            </button>
           ) : (
-            <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-muted-foreground">
-              <p className="text-sm">这篇论文还没有 Markdown 笔记。</p>
-              <Button onClick={handleCreateNote}>
-                <FilePlus2 className="mr-1.5 h-4 w-4" />
-                创建空白笔记
-              </Button>
-              <p className="text-xs">
-                也可以在论文详情面板中使用 AI 自动创建结构化笔记。
-              </p>
+            <div className="flex h-full flex-col">
+              <div className="flex h-8 shrink-0 items-center justify-between border-b border-border px-2">
+                <span className="text-xs font-medium">批注</span>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-6 w-6"
+                  onClick={() => setAnnotationsCollapsed(true)}
+                  title="收起批注栏"
+                >
+                  <PanelRightClose className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <AnnotationSidebar
+                  paperId={paperId}
+                  annotations={annotations}
+                  onAnnotationChange={handleAnnotationChange}
+                  onJumpToAnnotation={handleJumpToAnnotation}
+                />
+              </div>
+            </div>
+          )}
+        </section>
+        {/* 笔记编辑区（可收起） */}
+        <section
+          className={
+            notesCollapsed
+              ? "w-[40px] shrink-0 border-l border-border"
+              : "flex-[1_1_0%] min-w-[320px] border-l border-border"
+          }
+        >
+          {notesCollapsed ? (
+            <button
+              className="flex h-full w-full flex-col items-center justify-center text-muted-foreground hover:text-foreground"
+              onClick={() => setNotesCollapsed(false)}
+              title="展开笔记"
+            >
+              <PanelLeftOpen className="h-4 w-4" />
+            </button>
+          ) : (
+            <div className="flex h-full flex-col">
+              <div className="flex h-8 shrink-0 items-center justify-between border-b border-border px-2">
+                <span className="text-xs font-medium">笔记</span>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-6 w-6"
+                  onClick={() => setNotesCollapsed(true)}
+                  title="收起笔记"
+                >
+                  <PanelLeftClose className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                {hasNote ? (
+                  <NoteEditor paperId={paperId} />
+                ) : (
+                  <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-muted-foreground">
+                    <p className="text-sm">这篇论文还没有 Markdown 笔记。</p>
+                    <Button onClick={handleCreateNote}>
+                      <FilePlus2 className="mr-1.5 h-4 w-4" />
+                      创建空白笔记
+                    </Button>
+                    <p className="text-xs">
+                      也可以在论文详情面板中使用 AI 自动创建结构化笔记。
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </section>

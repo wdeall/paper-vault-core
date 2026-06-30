@@ -473,7 +473,7 @@ pub fn insert_from_metadata(
         authors: meta.authors.clone(),
         year: meta.year,
         venue: meta.venue.clone(),
-        doi: meta.doi.clone(),
+        doi: crate::duplicates::normalize_doi(&meta.doi),
         abstract_text: meta.abstract_text.clone(),
         keywords: meta.keywords.clone(),
         status: PaperStatus::Unread,

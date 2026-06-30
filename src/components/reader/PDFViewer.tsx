@@ -8,6 +8,8 @@ import {
   ChevronLeft,
   ChevronRight,
   MessageSquare,
+  Underline,
+  Strikethrough,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,14 +34,62 @@ const COLORS = [
   { name: "purple", class: "bg-purple-400", rgba: "rgba(192, 132, 252, 0.35)" },
 ];
 
+// 不透明色映射（underline / strike 用）
+const SOLID_COLORS: Record<string, string> = {
+  yellow: "rgb(250, 204, 21)",
+  red: "rgb(248, 113, 113)",
+  green: "rgb(74, 222, 128)",
+  blue: "rgb(96, 165, 250)",
+  purple: "rgb(192, 132, 252)",
+};
+
 function colorRgba(name: string | null): string {
   const c = COLORS.find((co) => co.name === name);
   return c ? c.rgba : "rgba(250, 204, 21, 0.35)";
 }
 
+function colorSolid(name: string | null): string {
+  return SOLID_COLORS[name ?? "yellow"] ?? SOLID_COLORS.yellow;
+}
+
+// 按 kind 生成批注覆盖层样式
+function renderStyle(
+  kind: string,
+  r: AnnotationRect,
+  color: string | null,
+): React.CSSProperties {
+  const base: React.CSSProperties = {
+    left: `${r.x * 100}%`,
+    top: `${r.y * 100}%`,
+    width: `${r.w * 100}%`,
+  };
+  if (kind === "underline") {
+    return {
+      ...base,
+      height: "2px",
+      top: `${(r.y + r.h) * 100}%`,
+      backgroundColor: colorSolid(color),
+    };
+  }
+  if (kind === "strike") {
+    return {
+      ...base,
+      height: "2px",
+      top: `${(r.y + r.h / 2) * 100}%`,
+      backgroundColor: colorSolid(color),
+    };
+  }
+  // highlight / note 默认
+  return {
+    ...base,
+    height: `${r.h * 100}%`,
+    backgroundColor: colorRgba(color),
+  };
+}
+
 interface SelectionState {
   text: string;
-  rect: AnnotationRect;
+  rect: AnnotationRect[]; // 多 rect（跨行选区）
   x: number; // 相对于 .pdf-page 的像素位置（用于定位 toolbar）
   y: number;
 }
@@ -259,20 +309,24 @@ export function PDFViewer({
         setSelectionState(null);
         return;
       }
-      const selRect = range.getBoundingClientRect();
+      // 用 getClientRects() 取逐行 rect，避免跨行选区返回并集矩形过大
+      const rawRects = Array.from(range.getClientRects());
+      if (rawRects.length === 0) return;
       const layerRect = textLayer.getBoundingClientRect();
-      if (selRect.width === 0 || selRect.height === 0) return;
-      // 归一化坐标（0-1，相对于页面尺寸）
-      const rect: AnnotationRect = {
-        x: (selRect.left - layerRect.left) / layerRect.width,
-        y: (selRect.top - layerRect.top) / layerRect.height,
-        w: selRect.width / layerRect.width,
-        h: selRect.height / layerRect.height,
-      };
-      // toolbar 定位（相对于 .pdf-page 容器）
-      const x = selRect.left - layerRect.left + selRect.width / 2;
-      const y = selRect.top - layerRect.top;
-      setSelectionState({ text, rect, x, y });
+      const normRects: AnnotationRect[] = rawRects
+        .filter((r) => r.width > 0 && r.height > 0)
+        .map((r) => ({
+          x: (r.left - layerRect.left) / layerRect.width,
+          y: (r.top - layerRect.top) / layerRect.height,
+          w: r.width / layerRect.width,
+          h: r.height / layerRect.height,
+        }));
+      if (normRects.length === 0) return;
+      // toolbar 定位用第一个 rect（相对于 .pdf-page 容器）
+      const first = rawRects[0];
+      const x = first.left - layerRect.left + first.width / 2;
+      const y = first.top - layerRect.top;
+      setSelectionState({ text, rect: normRects, x, y });
     }
     document.addEventListener("mouseup", handleMouseUp);
     return () => document.removeEventListener("mouseup", handleMouseUp);
@@ -340,6 +394,34 @@ export function PDFViewer({
       setCreating(false);
     }
   }, [selectionState, paperId, currentPage, commentText, showToast]);
+
+  // underline / strike 批注（默认黄色实色线）
+  const handleCreateAnnotation = useCallback(
+    async (kind: "underline" | "strike") => {
+      if (!selectionState) return;
+      setCreating(true);
+      try {
+        await api.createAnnotation({
+          paperId,
+          kind,
+          page: currentPage,
+          rect: selectionState.rect,
+          color: "yellow",
+          text: selectionState.text,
+          comment: null,
+        });
+        showToast("success", kind === "underline" ? "已添加下划线" : "已添加删除线");
+        window.getSelection()?.removeAllRanges();
+        setSelectionState(null);
+        onAnnotationChangeRef.current();
+      } catch (e) {
+        showToast("error", `添加失败: ${(e as Error).message}`);
+      } finally {
+        setCreating(false);
+      }
+    },
+    [selectionState, paperId, currentPage, showToast],
+  );
 
   function openNative() {
     void api.openPdf(paperId).catch((e) => {
@@ -423,20 +505,16 @@ export function PDFViewer({
               {/* 批注高亮覆盖层 */}
               <div className="pointer-events-none absolute inset-0 z-10">
                 {annotations
-                  .filter((a) => a.page === currentPage && a.rect)
-                  .map((a) => (
-                    <div
-                      key={a.id}
-                      className="absolute"
-                      style={{
-                        left: `${a.rect!.x * 100}%`,
-                        top: `${a.rect!.y * 100}%`,
-                        width: `${a.rect!.w * 100}%`,
-                        height: `${a.rect!.h * 100}%`,
-                        backgroundColor: colorRgba(a.color),
-                      }}
-                    />
-                  ))}
+                  .filter((a) => a.page === currentPage && a.rect && a.rect.length > 0)
+                  .flatMap((a) =>
+                    a.rect!.map((r, i) => (
+                      <div
+                        key={`${a.id}-${i}`}
+                        className="absolute"
+                        style={renderStyle(a.kind, r, a.color)}
+                      />
+                    )),
+                  )}
               </div>
 
               {/* 文本层（用于选区） */}
@@ -466,6 +544,27 @@ export function PDFViewer({
                       onClick={() => handleCreateHighlight(c.name)}
                     />
                   ))}
+                  <div className="mx-1 h-4 w-px bg-border" />
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-6 w-6"
+                    disabled={creating}
+                    onClick={() => handleCreateAnnotation("underline")}
+                    title="下划线"
+                  >
+                    <Underline className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-6 w-6"
+                    disabled={creating}
+                    onClick={() => handleCreateAnnotation("strike")}
+                    title="删除线"
+                  >
+                    <Strikethrough className="h-3.5 w-3.5" />
+                  </Button>
                   <div className="mx-1 h-4 w-px bg-border" />
                   <Button
                     size="icon"

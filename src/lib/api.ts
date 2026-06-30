@@ -10,6 +10,7 @@ import type {
   AnnotationRect,
   Collection,
   DuplicateCandidate,
+  DuplicatePair,
   ImportResult,
   IndexStatusSummary,
   MergeResult,
@@ -85,12 +86,18 @@ interface RawAnnotation {
 }
 
 function parseAnnotation(raw: RawAnnotation): Annotation {
-  let rect: AnnotationRect | null = null;
+  let rects: AnnotationRect[] | null = null;
   if (raw.rect) {
     try {
-      rect = JSON.parse(raw.rect) as AnnotationRect;
+      const parsed = JSON.parse(raw.rect);
+      if (Array.isArray(parsed)) {
+        rects = parsed as AnnotationRect[];
+      } else if (parsed && typeof parsed === "object") {
+        // 兼容旧单 rect 数据
+        rects = [parsed as AnnotationRect];
+      }
     } catch {
-      rect = null;
+      rects = null;
     }
   }
   return {
@@ -99,7 +106,7 @@ function parseAnnotation(raw: RawAnnotation): Annotation {
     attachment_id: raw.attachment_id,
     kind: raw.kind,
     page: raw.page,
-    rect,
+    rect: rects,
     color: raw.color,
     text: raw.text,
     comment: raw.comment,
@@ -229,24 +236,27 @@ export const api = {
     call<string>("export_markdown_citation", { ids }),
 
   // === Annotations (M-D P4) ===
-  // 后端 rect 字段为 JSON 字符串，这里做序列化 / 反序列化
+  // 后端 rect 字段为 JSON 字符串（数组），这里做序列化 / 反序列化
+  // 后端 create_annotation 入参为 AnnotationInput 结构体（避免 too_many_arguments）
   createAnnotation: (params: {
     paperId: string;
     kind: string;
     page: number | null;
-    rect: AnnotationRect | null;
+    rect: AnnotationRect[] | null;
     color: string | null;
     text: string | null;
     comment: string | null;
   }) =>
     call<RawAnnotation>("create_annotation", {
       paperId: params.paperId,
-      kind: params.kind,
-      page: params.page,
-      rect: params.rect ? JSON.stringify(params.rect) : null,
-      color: params.color,
-      text: params.text,
-      comment: params.comment,
+      input: {
+        kind: params.kind,
+        page: params.page,
+        rect: params.rect ? JSON.stringify(params.rect) : null,
+        color: params.color,
+        text: params.text,
+        comment: params.comment,
+      },
     }).then(parseAnnotation),
   listAnnotations: (paperId: string) =>
     call<RawAnnotation[]>("list_annotations", { paperId }).then((anns) =>
@@ -257,7 +267,7 @@ export const api = {
     color?: string | null;
     text?: string | null;
     comment?: string | null;
-    rect?: AnnotationRect | null;
+    rect?: AnnotationRect[] | null;
   }) =>
     call<RawAnnotation>("update_annotation", {
       id: params.id,
@@ -270,4 +280,8 @@ export const api = {
     call<void>("delete_annotation", { id }),
   syncAnnotationsToNote: (paperId: string) =>
     call<void>("sync_annotations_to_note", { paperId }),
+
+  // === Duplicates (P2) ===
+  // 主动扫描全库重复对（前端启动时调用，避免后端 setup emit 早于前端 listen 的时序竞态）
+  scanDuplicates: () => call<DuplicatePair[]>("scan_duplicates"),
 };

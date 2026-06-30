@@ -61,7 +61,7 @@ pub fn escape_bibtex(s: &str) -> String {
             '_' => out.push_str(r"\_"),
             '^' => out.push_str(r"\^{}"),
             '~' => out.push_str(r"\~{}"),
-            '\n' => out.push_str(" "),
+            '\n' => out.push(' '),
             c => out.push(c),
         }
     }

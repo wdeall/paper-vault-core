@@ -1,5 +1,6 @@
 //! Tauri IPC 命令
 
+pub mod common;
 pub mod init;
 pub mod papers;
 pub mod notes;

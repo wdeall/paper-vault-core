@@ -2,7 +2,7 @@
 
 use crate::db;
 use crate::error::{AppError, AppResult};
-use crate::types::Annotation;
+use crate::types::{Annotation, AnnotationInput};
 use rusqlite::{params, OptionalExtension};
 use std::path::{Path, PathBuf};
 
@@ -38,16 +38,7 @@ const SELECT_COLS: &str = "id, paper_id, attachment_id, kind, page, rect, color,
 // ============================================================
 
 /// 创建批注。生成 UUID v4 作为 id，created_at = now_ms。
-pub fn create(
-    vault: &Path,
-    paper_id: &str,
-    kind: &str,
-    page: Option<i32>,
-    rect: Option<&str>,
-    color: Option<&str>,
-    text: Option<&str>,
-    comment: Option<&str>,
-) -> AppResult<Annotation> {
+pub fn create(vault: &Path, paper_id: &str, input: &AnnotationInput) -> AppResult<Annotation> {
     let id = uuid::Uuid::new_v4().to_string();
     let created_at = now_ms();
 
@@ -56,19 +47,29 @@ pub fn create(
         "INSERT INTO annotations
             (id, paper_id, kind, page, rect, color, text, comment, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        params![id, paper_id, kind, page, rect, color, text, comment, created_at],
+        params![
+            id,
+            paper_id,
+            input.kind,
+            input.page,
+            input.rect,
+            input.color,
+            input.text,
+            input.comment,
+            created_at
+        ],
     )?;
 
     let ann = Annotation {
         id,
         paper_id: paper_id.to_string(),
         attachment_id: None,
-        kind: kind.to_string(),
-        page,
-        rect: rect.map(|s| s.to_string()),
-        color: color.map(|s| s.to_string()),
-        text: text.map(|s| s.to_string()),
-        comment: comment.map(|s| s.to_string()),
+        kind: input.kind.clone(),
+        page: input.page,
+        rect: input.rect.clone(),
+        color: input.color.clone(),
+        text: input.text.clone(),
+        comment: input.comment.clone(),
         created_at,
         modified_at: None,
     };
@@ -386,12 +387,14 @@ mod tests {
         let ann = create(
             dir.path(),
             "p1",
-            "highlight",
-            Some(3),
-            Some(r#"{"x":1,"y":2,"w":3,"h":4}"#),
-            Some("#ffeb3b"),
-            Some("selected text"),
-            Some("my comment"),
+            &AnnotationInput {
+                kind: "highlight".into(),
+                page: Some(3),
+                rect: Some(r#"{"x":1,"y":2,"w":3,"h":4}"#.into()),
+                color: Some("#ffeb3b".into()),
+                text: Some("selected text".into()),
+                comment: Some("my comment".into()),
+            },
         )
         .unwrap();
 
@@ -423,12 +426,48 @@ mod tests {
         insert_paper(&conn, "p1", "Paper 1");
 
         // 创建 3 条，page 顺序故意打乱
-        let _a1 = create(dir.path(), "p1", "highlight", Some(2), None, None, None, None).unwrap();
+        let _a1 = create(
+            dir.path(),
+            "p1",
+            &AnnotationInput {
+                kind: "highlight".into(),
+                page: Some(2),
+                rect: None,
+                color: None,
+                text: None,
+                comment: None,
+            },
+        )
+        .unwrap();
         // 让 created_at 拉开差距
         std::thread::sleep(std::time::Duration::from_millis(10));
-        let _a2 = create(dir.path(), "p1", "highlight", Some(1), None, None, None, None).unwrap();
+        let _a2 = create(
+            dir.path(),
+            "p1",
+            &AnnotationInput {
+                kind: "highlight".into(),
+                page: Some(1),
+                rect: None,
+                color: None,
+                text: None,
+                comment: None,
+            },
+        )
+        .unwrap();
         std::thread::sleep(std::time::Duration::from_millis(10));
-        let _a3 = create(dir.path(), "p1", "highlight", Some(1), None, None, None, None).unwrap();
+        let _a3 = create(
+            dir.path(),
+            "p1",
+            &AnnotationInput {
+                kind: "highlight".into(),
+                page: Some(1),
+                rect: None,
+                color: None,
+                text: None,
+                comment: None,
+            },
+        )
+        .unwrap();
 
         let list = list_by_paper(dir.path(), "p1").unwrap();
         assert_eq!(list.len(), 3);
@@ -449,12 +488,14 @@ mod tests {
         let ann = create(
             dir.path(),
             "p1",
-            "highlight",
-            Some(1),
-            None,
-            Some("#fff"),
-            Some("old text"),
-            Some("old comment"),
+            &AnnotationInput {
+                kind: "highlight".into(),
+                page: Some(1),
+                rect: None,
+                color: Some("#fff".into()),
+                text: Some("old text".into()),
+                comment: Some("old comment".into()),
+            },
         )
         .unwrap();
 
@@ -509,7 +550,19 @@ mod tests {
         let conn = db::open(dir.path()).unwrap();
         insert_paper(&conn, "p1", "Paper 1");
 
-        let ann = create(dir.path(), "p1", "highlight", Some(1), None, None, None, None).unwrap();
+        let ann = create(
+            dir.path(),
+            "p1",
+            &AnnotationInput {
+                kind: "highlight".into(),
+                page: Some(1),
+                rect: None,
+                color: None,
+                text: None,
+                comment: None,
+            },
+        )
+        .unwrap();
         let list = list_by_paper(dir.path(), "p1").unwrap();
         assert_eq!(list.len(), 1);
 
@@ -548,23 +601,27 @@ mod tests {
         create(
             dir.path(),
             "p1",
-            "highlight",
-            Some(5),
-            None,
-            Some("#ffeb3b"),
-            Some("important text"),
-            Some("a comment"),
+            &AnnotationInput {
+                kind: "highlight".into(),
+                page: Some(5),
+                rect: None,
+                color: Some("#ffeb3b".into()),
+                text: Some("important text".into()),
+                comment: Some("a comment".into()),
+            },
         )
         .unwrap();
         create(
             dir.path(),
             "p1",
-            "note",
-            Some(5),
-            None,
-            None,
-            None,
-            Some("standalone note"),
+            &AnnotationInput {
+                kind: "note".into(),
+                page: Some(5),
+                rect: None,
+                color: None,
+                text: None,
+                comment: Some("standalone note".into()),
+            },
         )
         .unwrap();
 
@@ -587,7 +644,19 @@ mod tests {
         let conn = db::open(dir.path()).unwrap();
         // paper 没有 note_path
         insert_paper(&conn, "p1", "Paper 1");
-        create(dir.path(), "p1", "highlight", Some(1), None, None, None, None).unwrap();
+        create(
+            dir.path(),
+            "p1",
+            &AnnotationInput {
+                kind: "highlight".into(),
+                page: Some(1),
+                rect: None,
+                color: None,
+                text: None,
+                comment: None,
+            },
+        )
+        .unwrap();
 
         // 应直接 Ok，不写文件
         sync_to_note(dir.path(), "p1").unwrap();
@@ -609,7 +678,19 @@ mod tests {
         let conn = db::open(dir.path()).unwrap();
         // note_path 指向不存在的文件
         insert_paper_with_note(&conn, "p1", "Paper 1", "notes/papers/p1.md");
-        create(dir.path(), "p1", "highlight", Some(1), None, None, None, None).unwrap();
+        create(
+            dir.path(),
+            "p1",
+            &AnnotationInput {
+                kind: "highlight".into(),
+                page: Some(1),
+                rect: None,
+                color: None,
+                text: None,
+                comment: None,
+            },
+        )
+        .unwrap();
 
         // 应 Ok（无笔记可同步）
         sync_to_note(dir.path(), "p1").unwrap();
@@ -630,12 +711,14 @@ mod tests {
         create(
             dir.path(),
             "p1",
-            "highlight",
-            Some(2),
-            None,
-            Some("#ff0"),
-            Some("highlighted"),
-            Some("note text"),
+            &AnnotationInput {
+                kind: "highlight".into(),
+                page: Some(2),
+                rect: None,
+                color: Some("#ff0".into()),
+                text: Some("highlighted".into()),
+                comment: Some("note text".into()),
+            },
         )
         .unwrap();
 
@@ -669,12 +752,14 @@ mod tests {
         create(
             dir.path(),
             "p2",
-            "highlight",
-            Some(7),
-            None,
-            Some("#0f0"),
-            Some("new text"),
-            None,
+            &AnnotationInput {
+                kind: "highlight".into(),
+                page: Some(7),
+                rect: None,
+                color: Some("#0f0".into()),
+                text: Some("new text".into()),
+                comment: None,
+            },
         )
         .unwrap();
 

@@ -3,7 +3,7 @@
 //! 输入支持 4 种形态：
 //!   1. 纯标识符（"10.1109/foo" / "2401.01234" / "12345678" / "9787123456789"）
 //!   2. URL（"https://doi.org/10.xxx" / "https://arxiv.org/abs/..." /
-//!         "https://pubmed.ncbi.nlm.nih.gov/12345"）
+//!      "https://pubmed.ncbi.nlm.nih.gov/12345"）
 //!   3. 带前缀（"DOI: 10.xxx" / "arXiv: 2401.01234"）
 //!   4. 任意字符串（尽量从中抽出一个有效 identifier）
 //!
@@ -130,7 +130,7 @@ pub fn parse(input: &str) -> Vec<(Scheme, String)> {
     let mut seen: Vec<(Scheme, String)> = Vec::new();
 
     let push = |scheme: Scheme, val: String, out: &mut Vec<(Scheme, String)>, seen: &mut Vec<(Scheme, String)>| {
-        let v = val.trim().trim_end_matches(|c: char| c == '.' || c == ',' || c == ';' || c == ')').to_string();
+        let v = val.trim().trim_end_matches(['.', ',', ';', ')']).to_string();
         if v.is_empty() {
             return;
         }
@@ -245,7 +245,7 @@ fn ctx_ok(bytes: &[u8], start: usize, end: usize) -> bool {
 
 /// ISBN-10 / ISBN-13 校验。
 pub fn is_valid_isbn(s: &str) -> bool {
-    let s = s.replace('-', "").replace(' ', "");
+    let s = s.replace(['-', ' '], "");
     match s.len() {
         10 => validate_isbn10(&s),
         13 => validate_isbn13(&s),

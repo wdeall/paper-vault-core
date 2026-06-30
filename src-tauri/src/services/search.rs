@@ -8,6 +8,7 @@
 //! 从 services/index.rs 迁移过来。
 
 use crate::db;
+use crate::duplicates::normalize_doi;
 use crate::error::AppResult;
 use crate::types::{PaperSummary, SearchHit, StructuredQuery};
 use rusqlite::{params, Connection};
@@ -112,10 +113,10 @@ pub fn search_structured(
         }
     }
     if let Some(d) = query.doi.as_ref() {
-        let d = d.trim();
-        if !d.is_empty() {
+        let nd = normalize_doi(d);
+        if !nd.is_empty() {
             sql.push_str(" AND p.doi = ?");
-            args.push(Box::new(d.to_string()));
+            args.push(Box::new(nd));
         }
     }
     if let Some(s) = query.status.as_ref() {
@@ -351,10 +352,10 @@ pub fn search_both(
         }
     }
     if let Some(d) = query.doi.as_ref() {
-        let d = d.trim();
-        if !d.is_empty() {
+        let nd = normalize_doi(d);
+        if !nd.is_empty() {
             sql.push_str(" AND p.doi = ?");
-            args.push(Box::new(d.to_string()));
+            args.push(Box::new(nd));
         }
     }
     if let Some(s) = query.status.as_ref() {

@@ -1,19 +1,12 @@
 //! 导出命令
 
+use crate::commands::common::require_vault;
 use crate::error::AppResult;
 use crate::services::paper;
 use crate::export::{bibtex, citation, csl, ris};
 use tauri::State;
 
 use crate::AppState;
-
-fn require_vault<'a>(state: &'a State<'_, AppState>) -> AppResult<std::path::PathBuf> {
-    let guard = state.vault_path.read();
-    guard
-        .as_ref()
-        .cloned()
-        .ok_or_else(|| crate::error::AppError::Config("vault 未初始化".into()))
-}
 
 #[tauri::command]
 pub async fn export_bibtex(

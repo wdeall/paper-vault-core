@@ -11,16 +11,7 @@ import { ReaderPage } from "@/routes/ReaderPage";
 import { SettingsPage } from "@/routes/SettingsPage";
 import { VaultInitDialog } from "@/components/VaultInitDialog";
 import { Toaster } from "@/components/Toaster";
-
-// 后端 emit 的重复对类型
-interface DuplicatePair {
-  paper_id_a: string;
-  title_a: string;
-  paper_id_b: string;
-  title_b: string;
-  reason: string;
-  confidence: string;
-}
+import type { DuplicatePair } from "@/types";
 
 export function App() {
   const [vaultReady, setVaultReady] = useState<boolean | null>(null);
@@ -58,6 +49,18 @@ export function App() {
       await api.getVaultInfo();
       setVaultReady(true);
       await usePaperStore.getState().loadPapers();
+      // 主动拉取一次重复扫描（避免后端 setup emit 早于前端 listen 注册的时序竞态）
+      void api.scanDuplicates().then((pairs) => {
+        if (pairs.length > 0) {
+          showToast(
+            "warning",
+            `发现 ${pairs.length} 组疑似重复论文，建议在设置中检查并合并`,
+            { ttlSec: 10 },
+          );
+        }
+      }).catch((e) => {
+        console.error("scan duplicates", e);
+      });
     } catch (e) {
       if (e instanceof ApiError && e.kind === "config") {
         setVaultReady(false);

@@ -1,42 +1,21 @@
 //! P4: PDF 批注命令
 
-use crate::error::{AppError, AppResult};
+use crate::commands::common::require_vault;
+use crate::error::AppResult;
 use crate::services::annotation;
-use crate::types::Annotation;
+use crate::types::{Annotation, AnnotationInput};
 use tauri::State;
 
 use crate::AppState;
-
-fn require_vault<'a>(state: &'a State<'_, AppState>) -> AppResult<std::path::PathBuf> {
-    let guard = state.vault_path.read();
-    guard
-        .as_ref()
-        .cloned()
-        .ok_or_else(|| AppError::Config("vault 未初始化".into()))
-}
 
 #[tauri::command]
 pub async fn create_annotation(
     state: State<'_, AppState>,
     paper_id: String,
-    kind: String,
-    page: Option<i32>,
-    rect: Option<String>,
-    color: Option<String>,
-    text: Option<String>,
-    comment: Option<String>,
+    input: AnnotationInput,
 ) -> AppResult<Annotation> {
     let vault = require_vault(&state)?;
-    annotation::create(
-        &vault,
-        &paper_id,
-        &kind,
-        page,
-        rect.as_deref(),
-        color.as_deref(),
-        text.as_deref(),
-        comment.as_deref(),
-    )
+    annotation::create(&vault, &paper_id, &input)
 }
 
 #[tauri::command]

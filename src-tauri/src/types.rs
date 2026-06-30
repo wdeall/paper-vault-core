@@ -16,9 +16,10 @@ use serde::{Deserialize, Serialize};
 // ============================================================
 
 /// 阅读状态枚举。P0 唯一持久化形态。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum PaperStatus {
+    #[default]
     Unread,
     Reading,
     Read,
@@ -45,12 +46,6 @@ impl PaperStatus {
             // 兜底
             _ => PaperStatus::Unread,
         }
-    }
-}
-
-impl Default for PaperStatus {
-    fn default() -> Self {
-        PaperStatus::Unread
     }
 }
 
@@ -171,6 +166,17 @@ pub struct Annotation {
     pub comment: Option<String>,
     pub created_at: i64,
     pub modified_at: Option<i64>,
+}
+
+/// `create_annotation` 命令入参（避免 8 参数触发 clippy::too_many_arguments）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnnotationInput {
+    pub kind: String,
+    pub page: Option<i32>,
+    pub rect: Option<String>,
+    pub color: Option<String>,
+    pub text: Option<String>,
+    pub comment: Option<String>,
 }
 
 #[allow(dead_code)]

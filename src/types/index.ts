@@ -192,10 +192,20 @@ export interface Annotation {
   attachment_id: string | null;
   kind: string; // "highlight" | "note" | "underline" | "strike"
   page: number | null; // 1-indexed
-  rect: AnnotationRect | null;
+  rect: AnnotationRect[] | null; // 多 rect（跨行选区）；兼容旧单 rect 数据
   color: string | null; // "yellow" | "red" | "green" | "blue" | "purple"
   text: string | null;
   comment: string | null;
   created_at: number;
   modified_at: number | null;
+}
+
+/** 后端 scan_all 返回的重复对（与 Rust duplicates::DuplicatePair 对齐）。 */
+export interface DuplicatePair {
+  paper_id_a: string;
+  title_a: string;
+  paper_id_b: string;
+  title_b: string;
+  reason: string;
+  confidence: string;
 }

@@ -1,5 +1,6 @@
 //! 笔记相关命令
 
+use crate::commands::common::require_vault;
 use crate::error::AppResult;
 use crate::services::note;
 use crate::types::NoteContent;
@@ -7,14 +8,6 @@ use std::path::Path;
 use tauri::State;
 
 use crate::AppState;
-
-fn require_vault<'a>(state: &'a State<'_, AppState>) -> AppResult<std::path::PathBuf> {
-    let guard = state.vault_path.read();
-    guard
-        .as_ref()
-        .cloned()
-        .ok_or_else(|| crate::error::AppError::Config("vault 未初始化".into()))
-}
 
 #[tauri::command]
 pub async fn create_note(state: State<'_, AppState>, id: String) -> AppResult<String> {

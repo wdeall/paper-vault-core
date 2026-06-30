@@ -1,19 +1,12 @@
 //! P3 双通道搜索命令
 
-use crate::error::{AppError, AppResult};
+use crate::commands::common::require_vault;
+use crate::error::AppResult;
 use crate::services::{index, search};
 use crate::types::{IndexStatusSummary, PaperSummary, SearchHit, StructuredQuery};
 use tauri::State;
 
 use crate::AppState;
-
-fn require_vault<'a>(state: &'a State<'_, AppState>) -> AppResult<std::path::PathBuf> {
-    let guard = state.vault_path.read();
-    guard
-        .as_ref()
-        .cloned()
-        .ok_or_else(|| AppError::Config("vault 未初始化".into()))
-}
 
 #[tauri::command]
 pub async fn search_structured(
