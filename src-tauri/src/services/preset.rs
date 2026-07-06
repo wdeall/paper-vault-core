@@ -99,14 +99,8 @@ pub fn reset(vault: &std::path::Path, builtin_id: &str) -> AppResult<AISkillPres
 
 pub fn seed_builtins_if_empty(vault: &std::path::Path) -> AppResult<()> {
     let conn = db::open(vault)?;
-    let n: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM ai_skill_presets WHERE is_builtin = 1",
-        [],
-        |r| r.get(0),
-    )?;
-    if n > 0 {
-        return Ok(());
-    }
+    // 不再因 DB 已有 builtin 就提前返回：用 INSERT OR IGNORE 保证幂等，
+    // 这样新增的 builtin preset（如 reproduction_plan）也能被补充进已有库。
     let now = chrono::Local::now().timestamp_millis();
     for p in crate::ai::presets::builtin_presets(now) {
         conn.execute(
