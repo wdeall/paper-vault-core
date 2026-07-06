@@ -378,3 +378,10 @@ pub struct AISkillPreset {
     pub is_builtin: bool,
     pub updated_at: i64,
 }
+
+/// AI 对话入参：单条历史消息（role: "user" | "assistant"）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatMessageInput {
+    pub role: String,
+    pub content: String,
+}

@@ -222,6 +222,11 @@ export const api = {
       paperId: paperId ?? null,
       input: input ?? null,
     }),
+  chatWithPaper: (
+    paperId: string,
+    input: string,
+    history: { role: string; content: string }[],
+  ) => call<string>("chat_with_paper", { paperId, input, history }),
   getAiConfig: () => call<AIProviderConfig>("get_ai_config"),
   updateAiConfig: (patch: AIProviderConfig) =>
     call<AIProviderConfig>("update_ai_config", { patch }),

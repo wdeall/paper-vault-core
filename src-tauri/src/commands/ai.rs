@@ -4,7 +4,7 @@ use crate::commands::common::require_vault;
 use crate::error::AppResult;
 use crate::services::preset;
 use crate::services::ai_svc;
-use crate::types::{AIResult, AISkillPreset};
+use crate::types::{AIResult, AISkillPreset, ChatMessageInput};
 use tauri::State;
 
 use crate::AppState;
@@ -43,4 +43,16 @@ pub async fn run_ai(
 ) -> AppResult<AIResult> {
     let vault = require_vault(&state)?;
     ai_svc::run(&vault, &preset_id, paper_id.as_deref(), input.as_deref()).await
+}
+
+/// AI 多轮对话：以论文元数据为上下文，历史消息由前端传入。
+#[tauri::command]
+pub async fn chat_with_paper(
+    state: State<'_, AppState>,
+    paper_id: String,
+    input: String,
+    history: Vec<ChatMessageInput>,
+) -> AppResult<String> {
+    let vault = require_vault(&state)?;
+    ai_svc::chat(&vault, &paper_id, &input, &history).await
 }

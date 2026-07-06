@@ -26,8 +26,8 @@ pub fn extract_basic(path: &Path) -> AppResult<BasicMeta> {
     // 页数：form feed 字符数 + 1
     let page_count = text_all.matches('\x0c').count() as i32 + 1;
 
-    // DOI 正则
-    let doi_re = Regex::new(r"10\.\d{4,9}/[-._;()/:A-Z0-9]+").unwrap();
+    // DOI 正则（允许大小写，与 services/identifier.rs 保持一致）
+    let doi_re = Regex::new(r"10\.\d{4,9}/[-._;()/:A-Za-z0-9]+").unwrap();
     let doi = doi_re
         .find(&first_page_text)
         .map(|m| m.as_str().to_string())
@@ -71,7 +71,8 @@ mod tests {
     // 注意：这里不写具体 PDF 解析测试，依赖 fixture 后续补。
     #[test]
     fn regex_finds_doi() {
-        let re = Regex::new(r"10\.\d{4,9}/[-._;()/:A-Z0-9]+").unwrap();
+        let re = Regex::new(r"10\.\d{4,9}/[-._;()/:A-Za-z0-9]+").unwrap();
         assert!(re.is_match("The DOI is 10.1109/CVPR.2020.01234."));
+        assert!(re.is_match("Lowercase DOI: 10.1109/cvpr.2020.01234"));
     }
 }

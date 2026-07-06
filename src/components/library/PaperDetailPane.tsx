@@ -37,17 +37,27 @@ export function PaperDetailPane({ paperId }: { paperId: string }) {
   const removePaper = usePaperStore((s) => s.removePaper);
   const showToast = useUIStore((s) => s.showToast);
   const [detail, setDetail] = useState<PaperDetail | null>(null);
+  // savedDetail: 最近一次保存（或加载）的快照，用于 dirty 判断
+  const [savedDetail, setSavedDetail] = useState<PaperDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [candidate, setCandidate] = useState<MetadataCandidate | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  const isDirty =
+    detail != null && savedDetail != null
+      ? JSON.stringify(detail) !== JSON.stringify(savedDetail)
+      : false;
+
   useEffect(() => {
     setLoading(true);
     setCandidate(null);
     getPaper(paperId)
-      .then(setDetail)
+      .then((d) => {
+        setDetail(d);
+        setSavedDetail(d);
+      })
       .catch((e) => showToast("error", `加载失败: ${(e as Error).message}`))
       .finally(() => setLoading(false));
   }, [paperId, getPaper, showToast]);
@@ -59,7 +69,9 @@ export function PaperDetailPane({ paperId }: { paperId: string }) {
       const { reading_progress: _rp, index_status: _is, collections: _cs, ...paper } = detail;
       void _rp; void _is; void _cs;
       const updated = await updatePaper(paperId, paper);
-      setDetail((d) => (d ? { ...d, ...updated } : d));
+      const merged = { ...detail, ...updated };
+      setDetail(merged);
+      setSavedDetail(merged);
       showToast("success", "已保存");
     } catch (e) {
       showToast("error", `保存失败: ${(e as Error).message}`);
@@ -166,9 +178,15 @@ export function PaperDetailPane({ paperId }: { paperId: string }) {
           导入笔记
         </Button>
         <div className="ml-auto flex items-center gap-1">
-          <Button size="sm" variant="ghost" onClick={handleSave} disabled={saving}>
+          <Button
+            size="sm"
+            variant={isDirty ? "default" : "ghost"}
+            onClick={handleSave}
+            disabled={saving}
+            className={isDirty ? "animate-pulse" : ""}
+          >
             <Save className="mr-1.5 h-4 w-4" />
-            {saving ? "保存中…" : "保存"}
+            {saving ? "保存中…" : isDirty ? "保存 *" : "保存"}
           </Button>
         </div>
       </div>

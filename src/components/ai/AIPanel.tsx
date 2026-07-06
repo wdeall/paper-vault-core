@@ -8,12 +8,14 @@ import {
   Wand2,
   CheckCircle2,
   Hash,
+  FlaskConical,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useUIStore } from "@/stores/ui";
 import { api } from "@/lib/api";
 import type { AIResult, MetadataCandidate, PaperDetail } from "@/types";
+import { ChatPanel } from "./ChatPanel";
 
 interface Props {
   paperId: string;
@@ -61,6 +63,13 @@ const ACTIONS: PresetAction[] = [
     label: "查找相关论文",
     icon: Hash,
     description: "基于标题、DOI 和关键词查找相关研究。",
+  },
+  {
+    presetId: "reproduction_plan",
+    label: "复现实验计划",
+    icon: FlaskConical,
+    description: "基于论文方法部分制定代码复现计划与步骤。",
+    writesAiBlock: "summary",
   },
 ];
 
@@ -189,6 +198,9 @@ export function AIPanel({ paperId, hasNote, onChange }: Props) {
           </pre>
         </Card>
       )}
+
+      {/* AI 对话 */}
+      <ChatPanel paperId={paperId} />
 
       <Card className="p-3 text-xs text-muted-foreground">
         <p>

@@ -80,8 +80,9 @@ export const usePaperStore = create<PaperState>((set, get) => ({
 
   selectPaper: (id) => set({ selectedPaperId: id }),
 
-  setStatusFilter: (s) => set({ statusFilter: s, activeCollectionId: null }),
-  setActiveCollection: (id) => set({ activeCollectionId: id, statusFilter: null }),
+  // setter 只管理自己的字段；清空对方字段由调用方负责（CollectionsPane 已同时调用两个 setter）
+  setStatusFilter: (s) => set({ statusFilter: s }),
+  setActiveCollection: (id) => set({ activeCollectionId: id }),
   setSmartView: (v) => set({ smartView: v, statusFilter: null, activeCollectionId: null }),
 
   updatePaper: async (id, patch) => {

@@ -116,6 +116,7 @@ pub fn run() {
             commands::update_ai_preset,
             commands::reset_ai_preset,
             commands::run_ai,
+            commands::chat_with_paper,
             commands::get_ai_config,
             commands::update_ai_config,
             commands::export_bibtex,
