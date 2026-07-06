@@ -1,15 +1,14 @@
-// Reader 工作台：PDF 阅读器 + 批注侧边栏 + Markdown 笔记
+// Reader 工作台：PDF 阅读器 + Markdown 笔记
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Save, FilePlus2, BookOpen, PanelRightClose, PanelRightOpen, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { ArrowLeft, Save, FilePlus2, BookOpen, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PDFViewer } from "./PDFViewer";
-import { AnnotationSidebar } from "./AnnotationSidebar";
 import { NoteEditor } from "@/components/notes/NoteEditor";
 import { api } from "@/lib/api";
 import { useUIStore } from "@/stores/ui";
-import type { Annotation, PaperDetail } from "@/types";
+import type { PaperDetail } from "@/types";
 
 interface Props {
   paperId: string;
@@ -23,12 +22,8 @@ export function ReaderShell({ paperId }: Props) {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
   const [savingProgress, setSavingProgress] = useState(false);
-  // M-D P4：批注状态
-  const [annotations, setAnnotations] = useState<Annotation[]>([]);
-  const [annotationVersion, setAnnotationVersion] = useState(0);
-  // 三栏可收起
+  // 笔记栏可收起
   const [notesCollapsed, setNotesCollapsed] = useState(false);
-  const [annotationsCollapsed, setAnnotationsCollapsed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -50,23 +45,6 @@ export function ReaderShell({ paperId }: Props) {
       cancelled = true;
     };
   }, [paperId, showToast]);
-
-  // 加载批注列表（annotationVersion 变化时重新加载）
-  useEffect(() => {
-    let cancelled = false;
-    api
-      .listAnnotations(paperId)
-      .then((anns) => {
-        if (cancelled) return;
-        setAnnotations(anns);
-      })
-      .catch((e) => {
-        console.error("list annotations", e);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [paperId, annotationVersion]);
 
   // 防抖保存阅读进度
   const saveProgress = useCallback(
@@ -102,16 +80,6 @@ export function ReaderShell({ paperId }: Props) {
     },
     [currentPage, saveProgress],
   );
-
-  // 批注变更 → 重新加载批注列表
-  const handleAnnotationChange = useCallback(() => {
-    setAnnotationVersion((v) => v + 1);
-  }, []);
-
-  // 跳转到批注所在页（rect 已在 PDFViewer 的高亮覆盖层中渲染）
-  const handleJumpToAnnotation = useCallback((page: number) => {
-    setCurrentPage(page);
-  }, []);
 
   async function handleCreateNote() {
     try {
@@ -164,57 +132,14 @@ export function ReaderShell({ paperId }: Props) {
 
       <div className="flex flex-1 overflow-hidden">
         {/* PDF 阅读区（占比更大，不收起） */}
-        <section className="flex-[2_1_0%] min-w-[400px] border-r border-border bg-muted/30">
+        <section className="flex-[3_1_0%] min-w-[400px] border-r border-border bg-muted/30">
           <PDFViewer
             paperId={paperId}
             src={detail.pdf_path}
             initialPage={currentPage}
             onPageChange={handlePageChange}
             onTotalPages={handleTotalPages}
-            annotations={annotations}
-            onAnnotationChange={handleAnnotationChange}
           />
-        </section>
-        {/* 批注侧边栏（可收起） */}
-        <section
-          className={
-            annotationsCollapsed
-              ? "w-[40px] shrink-0 border-l border-border"
-              : "w-[240px] shrink-0 border-l border-border"
-          }
-        >
-          {annotationsCollapsed ? (
-            <button
-              className="flex h-full w-full flex-col items-center justify-center text-muted-foreground hover:text-foreground"
-              onClick={() => setAnnotationsCollapsed(false)}
-              title="展开批注栏"
-            >
-              <PanelRightOpen className="h-4 w-4" />
-            </button>
-          ) : (
-            <div className="flex h-full flex-col">
-              <div className="flex h-8 shrink-0 items-center justify-between border-b border-border px-2">
-                <span className="text-xs font-medium">批注</span>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="h-6 w-6"
-                  onClick={() => setAnnotationsCollapsed(true)}
-                  title="收起批注栏"
-                >
-                  <PanelRightClose className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-              <div className="flex-1 overflow-hidden">
-                <AnnotationSidebar
-                  paperId={paperId}
-                  annotations={annotations}
-                  onAnnotationChange={handleAnnotationChange}
-                  onJumpToAnnotation={handleJumpToAnnotation}
-                />
-              </div>
-            </div>
-          )}
         </section>
         {/* 笔记编辑区（可收起） */}
         <section
