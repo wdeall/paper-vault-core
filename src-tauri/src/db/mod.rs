@@ -72,6 +72,10 @@ pub fn migrate(vault: &Path) -> AppResult<(i32, bool)> {
     }
     tx.commit()?;
 
+    // 增量列补丁（SQLite 不支持 ALTER TABLE ADD COLUMN IF NOT EXISTS，
+    // 所以放在 Rust 里做幂等检查：仅对 ai_conversations 缺失的列做 ALTER）。
+    ensure_ai_conversation_summary_columns(&mut conn)?;
+
     // P0 数据搬运（独立事务，已在内部处理回滚）。
     let migrated = migrate_v2::run_migration(vault, &mut conn)?;
 
@@ -107,6 +111,42 @@ pub fn count_indexed(vault: &Path) -> AppResult<i64> {
 pub fn exec_sql(vault: &Path, sql: &str) -> AppResult<()> {
     let conn = open(vault)?;
     conn.execute_batch(sql)?;
+    Ok(())
+}
+
+/// 为 `ai_conversations` 表补齐 summary 相关列（幂等）。
+///
+/// SQLite 不支持 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`，所以这里
+/// 先用 `PRAGMA table_info` 读出已有列名，只对缺失的列执行 ALTER。
+/// 列定义与原 0005_ai_conversation_summary.sql 一致：
+/// - summary TEXT           — 对话历史压缩摘要
+/// - summary_up_to TEXT     — 摘要覆盖到的最后一条消息 id（不含）
+/// - summary_chars INTEGER  — 被总结消息的原始总字符数（默认 0）
+fn ensure_ai_conversation_summary_columns(conn: &mut Connection) -> AppResult<()> {
+    let existing: std::collections::HashSet<String> = {
+        let mut stmt = conn.prepare("PRAGMA table_info(ai_conversations)")?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(1))?;
+        let mut s = std::collections::HashSet::new();
+        for r in rows {
+            if let Ok(name) = r {
+                s.insert(name);
+            }
+        }
+        s
+    };
+
+    let alters: &[(&str, &str)] = &[
+        ("summary", "TEXT"),
+        ("summary_up_to", "TEXT"),
+        ("summary_chars", "INTEGER DEFAULT 0"),
+    ];
+    for (col, decl) in alters {
+        if !existing.contains(*col) {
+            let sql = format!("ALTER TABLE ai_conversations ADD COLUMN {col} {decl}");
+            log::info!("补列: ai_conversations.{col}");
+            conn.execute(&sql, [])?;
+        }
+    }
     Ok(())
 }
 

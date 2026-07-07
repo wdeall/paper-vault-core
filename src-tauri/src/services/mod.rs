@@ -5,6 +5,7 @@ pub mod note;
 pub mod index;
 pub mod search;
 pub mod ai_svc;
+pub mod ai_chat;
 pub mod export;
 pub mod duplicate;
 pub mod preset;

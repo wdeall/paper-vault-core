@@ -7,6 +7,19 @@ use crate::types::{NoteContent, Paper};
 use rusqlite::{params, OptionalExtension};
 use std::path::Path;
 
+/// 把 note_path 解析为绝对路径。
+/// DB 中存的是相对 vault 的路径（由 create/import_external 用 strip_prefix 生成），
+/// 读取时必须 join vault，否则从 CWD 解析会触发 os error 3（路径中目录不存在）。
+/// 参照 services/annotation.rs::resolve_note_path 同款实现。
+fn resolve_note_path(vault: &Path, note_path: &str) -> std::path::PathBuf {
+    let p = Path::new(note_path);
+    if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        vault.join(note_path)
+    }
+}
+
 fn note_path(vault: &Path, paper: &Paper) -> std::path::PathBuf {
     let slug = crate::vault::slug_from_title(&paper.title);
     let name = if slug.is_empty() {
@@ -56,11 +69,11 @@ pub fn get(vault: &Path, paper_id: &str) -> AppResult<NoteContent> {
         .optional()?
         .ok_or_else(|| AppError::NotFound(format!("论文 {paper_id} 没有 note_path")))?;
 
-    let p = std::path::Path::new(&note_path);
+    let p = resolve_note_path(vault, &note_path);
     if !p.exists() {
         return Err(AppError::NotFound(format!("笔记文件不存在: {note_path}")));
     }
-    let nc = markdown::read_note(p)?;
+    let nc = markdown::read_note(&p)?;
     Ok(NoteContent {
         path: note_path,
         frontmatter: serde_json::to_value(&nc.frontmatter).unwrap_or(serde_json::Value::Null),
@@ -78,9 +91,9 @@ pub fn update(vault: &Path, paper_id: &str, content: &str) -> AppResult<()> {
         )
         .optional()?
         .ok_or_else(|| AppError::NotFound("note_path 不存在".into()))?;
-    let p = std::path::Path::new(&note_path);
-    let nc = markdown::read_note(p)?;
-    markdown::write_note(p, &nc.frontmatter, content)?;
+    let p = resolve_note_path(vault, &note_path);
+    let nc = markdown::read_note(&p)?;
+    markdown::write_note(&p, &nc.frontmatter, content)?;
     Ok(())
 }
 
@@ -99,8 +112,8 @@ pub fn update_ai_block(
         )
         .optional()?
         .ok_or_else(|| AppError::NotFound("note_path 不存在".into()))?;
-    let p = std::path::Path::new(&note_path);
-    markdown::update_ai_block(p, block, new_content)?;
+    let p = resolve_note_path(vault, &note_path);
+    markdown::update_ai_block(&p, block, new_content)?;
     Ok(())
 }
 

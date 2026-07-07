@@ -597,6 +597,63 @@ pub fn default_resolver(scheme: Scheme) -> AppResult<Box<dyn Resolver>> {
     }
 }
 
+/// 按标题在 Crossref 模糊搜索，返回最匹配的前若干条元数据。
+/// 用于 PDF 抽不到 DOI 时按标题反查网络元数据。
+///
+/// 调用 Crossref `/works?query.bibliographic={title}&rows={limit}`。
+/// 返回结果按 Crossref 相关性排序，调用方可取第一个作为最佳匹配。
+pub async fn search_by_title(title: &str, limit: usize) -> AppResult<Vec<PaperMetadata>> {
+    if title.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let client = build_client()?;
+    let url = format!(
+        "https://api.crossref.org/works?query.bibliographic={}&rows={}",
+        urlencode(title),
+        limit.max(1).min(10)
+    );
+    let resp = send_with_retry(&client, &url).await?;
+    let status = resp.status();
+    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        return Err(AppError::Other("Crossref 限流，请稍后重试".into()));
+    }
+    if !status.is_success() {
+        return Err(AppError::Other(format!(
+            "Crossref 搜索失败: HTTP {status}"
+        )));
+    }
+    let body: serde_json::Value = resp.json().await?;
+    let items = body
+        .get("message")
+        .and_then(|m| m.get("items"))
+        .and_then(|i| i.as_array())
+        .ok_or_else(|| AppError::Other("Crossref 搜索响应缺 message.items".into()))?;
+    let mut out = Vec::with_capacity(items.len());
+    for item in items {
+        // 复用 parse_crossref_message：它期望 { "message": { ... } }，
+        // 这里每个 item 本身就是 message 结构，包一层即可。
+        let wrapped = serde_json::json!({ "message": item });
+        match parse_crossref_message(&wrapped) {
+            Ok(m) => out.push(m),
+            Err(e) => log::warn!("Crossref 搜索结果解析失败: {e}"),
+        }
+    }
+    Ok(out)
+}
+
+/// 简易 URL 编码（仅编码查询参数中的特殊字符）。
+fn urlencode(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            ' ' => "+".into(),
+            c if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '~' => {
+                c.to_string()
+            }
+            c => format!("%{:02X}", c as u8),
+        })
+        .collect()
+}
+
 // ============================================================
 // Tests
 // ============================================================

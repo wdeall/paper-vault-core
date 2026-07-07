@@ -3,6 +3,8 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  AIConversation,
+  AIMessage,
   AIProviderConfig,
   AIResult,
   AISkillPreset,
@@ -230,6 +232,30 @@ export const api = {
   getAiConfig: () => call<AIProviderConfig>("get_ai_config"),
   updateAiConfig: (patch: AIProviderConfig) =>
     call<AIProviderConfig>("update_ai_config", { patch }),
+
+  // === AI 对话（agent 风格侧边栏） ===
+  // 会话按 paper_id 分组持久化，支持多对话切换、流式推送
+  listAiConversations: (paperId?: string) =>
+    call<AIConversation[]>("list_ai_conversations", {
+      paperId: paperId ?? null,
+    }),
+  createAiConversation: (paperId: string | null, title: string) =>
+    call<AIConversation>("create_ai_conversation", {
+      paperId,
+      title,
+    }),
+  deleteAiConversation: (id: string) =>
+    call<void>("delete_ai_conversation", { id }),
+  renameAiConversation: (id: string, title: string) =>
+    call<AIConversation>("rename_ai_conversation", { id, title }),
+  listAiMessages: (conversationId: string) =>
+    call<AIMessage[]>("list_ai_messages", { conversationId }),
+  sendAiMessage: (conversationId: string, content: string) =>
+    call<AIMessage>("send_ai_message", { conversationId, content }),
+  runAiPresetInChat: (conversationId: string, presetId: string) =>
+    call<AIMessage>("run_ai_preset_in_chat", { conversationId, presetId }),
+  summarizeAiConversation: (conversationId: string) =>
+    call<AIConversation>("summarize_ai_conversation", { conversationId }),
 
   // === Export ===
   exportBibtex: (ids: string[]) => call<string>("export_bibtex", { ids }),

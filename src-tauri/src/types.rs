@@ -385,3 +385,35 @@ pub struct ChatMessageInput {
     pub role: String,
     pub content: String,
 }
+
+// ============================================================
+// AI 对话历史持久化（agent 风格侧边栏）
+// ============================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AIConversation {
+    pub id: String,
+    pub paper_id: Option<String>,
+    pub title: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+    /// 对话历史压缩摘要（超限后由 LLM 生成，缓存避免重复总结）
+    pub summary: Option<String>,
+    /// 摘要覆盖到的最后一条消息 id（不含此条），即之前消息已被总结
+    pub summary_up_to: Option<String>,
+    /// 被总结消息的原始总字符数（用于判断是否需要重新总结）
+    pub summary_chars: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AIMessage {
+    pub id: String,
+    pub conversation_id: String,
+    pub role: String,
+    pub content: String,
+    pub thinking: Option<String>,
+    pub context: Option<String>,
+    pub tool_calls: Option<String>,
+    pub preset_id: Option<String>,
+    pub created_at: i64,
+}

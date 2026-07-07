@@ -45,3 +45,8 @@ vitest.config.js
 
 # OS
 Thumbs.db
+
+# Unrelated drafts / scratch
+games/
+.trae/
+src-tauri/debug.log

@@ -1,6 +1,6 @@
 //! Markdown 笔记：frontmatter 解析、模板、AI 区块安全替换。
 
-use crate::error::{AppError, AppResult};
+use crate::error::AppResult;
 use std::path::Path;
 
 const FRONTMATTER_DELIM: &str = "---";
@@ -99,10 +99,10 @@ pub fn default_template(meta: &crate::types::Paper) -> String {
         doi = meta.doi,
         keywords = meta.keywords.join(", "),
         status = meta.status.as_str(),
-        AI_START_SUMMARY = AI_BLOCK_START.replace("START", "START:summary"),
-        AI_END_SUMMARY = AI_BLOCK_END.replace("END", "END:summary"),
-        AI_START_KEY = AI_BLOCK_START.replace("START", "START:key_points"),
-        AI_END_KEY = AI_BLOCK_END.replace("END", "END:key_points"),
+        AI_START_SUMMARY = format!("{AI_BLOCK_START}summary -->"),
+        AI_END_SUMMARY = format!("{AI_BLOCK_END}summary -->"),
+        AI_START_KEY = format!("{AI_BLOCK_START}key_points -->"),
+        AI_END_KEY = format!("{AI_BLOCK_END}key_points -->"),
     )
 }
 
@@ -112,15 +112,38 @@ pub const BLOCK_SUMMARY: &str = "summary";
 #[allow(dead_code)]
 pub const BLOCK_KEY_POINTS: &str = "key_points";
 
-/// 安全更新 AI 区块。如果原笔记没有该区块则不动。
+/// 安全更新 AI 区块。如果原笔记没有该区块则自动追加。
 pub fn update_ai_block(path: &Path, block: &str, new_content: &str) -> AppResult<()> {
     let nc = read_note(path)?;
     let start_marker = format!("{AI_BLOCK_START}{block} -->");
     let end_marker = format!("{AI_BLOCK_END}{block} -->");
 
     let body = nc.body;
-    let new_body = replace_ai_section(&body, &start_marker, &end_marker, new_content)
-        .ok_or_else(|| AppError::Markdown(format!("笔记中找不到 AI 区块 {block}")))?;
+    let new_body = match replace_ai_section(&body, &start_marker, &end_marker, new_content) {
+        Some(b) => b,
+        None => {
+            // 笔记中没有该 AI 区块标记，自动追加到末尾。
+            // 追加格式与 default_template 保持一致，便于后续替换。
+            let section_title = match block {
+                "summary" => "## AI 摘要",
+                "key_points" => "## 论文要点",
+                _ => "## AI 区块",
+            };
+            let mut s = body.trim_end().to_string();
+            s.push_str("\n\n");
+            s.push_str(section_title);
+            s.push('\n');
+            s.push_str(&start_marker);
+            s.push('\n');
+            s.push_str(new_content);
+            if !new_content.ends_with('\n') {
+                s.push('\n');
+            }
+            s.push_str(&end_marker);
+            s.push('\n');
+            s
+        }
+    };
 
     write_note(path, &nc.frontmatter, &new_body)?;
     Ok(())
@@ -185,10 +208,16 @@ my hand-written
     }
 
     #[test]
-    fn ai_block_missing_returns_err() {
+    fn ai_block_missing_auto_appends() {
         let dir = tempdir().unwrap();
         let p = dir.path().join("note.md");
         std::fs::write(&p, "# No block").unwrap();
-        assert!(update_ai_block(&p, BLOCK_SUMMARY, "x").is_err());
+        // 旧版本：缺失区块时返回错误。
+        // 新版本：自动追加 AI 区块到末尾（兼容导入的外部笔记）。
+        update_ai_block(&p, BLOCK_SUMMARY, "auto summary").unwrap();
+        let nc = read_note(&p).unwrap();
+        assert!(nc.body.contains("auto summary"));
+        assert!(nc.body.contains("<!-- AI_GENERATED_START:summary -->"));
+        assert!(nc.body.contains("<!-- AI_GENERATED_END:summary -->"));
     }
 }

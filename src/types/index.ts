@@ -209,3 +209,48 @@ export interface DuplicatePair {
   reason: string;
   confidence: string;
 }
+
+// ============================================================
+// AI 对话历史持久化（agent 风格侧边栏）
+// ============================================================
+
+export interface AIConversation {
+  id: string;
+  paper_id: string | null;
+  title: string;
+  created_at: number;
+  updated_at: number;
+  /** 对话历史压缩摘要（超限后由 LLM 生成） */
+  summary: string | null;
+  /** 摘要覆盖到的最后一条消息 id（不含此条） */
+  summary_up_to: string | null;
+  /** 被总结消息的原始总字符数 */
+  summary_chars: number;
+}
+
+export interface AIMessage {
+  id: string;
+  conversation_id: string;
+  role: string; // "user" | "assistant" | "system"
+  content: string;
+  thinking: string | null;
+  context: string | null;
+  tool_calls: string | null;
+  preset_id: string | null;
+  created_at: number;
+}
+
+/** ai-chat-delta 事件载荷。 */
+export interface AIChatDeltaEvent {
+  conversation_id: string;
+  message_id?: string;
+  delta: string;
+  thinking: string;
+  done: boolean;
+}
+
+/** ai-chat-summarized 事件载荷：触发自动总结压缩时由后端推送。 */
+export interface AIChatSummarizedEvent {
+  conversation_id: string;
+  message: string;
+}

@@ -1,11 +1,12 @@
-// Reader 工作台：PDF 阅读器 + Markdown 笔记
+// Reader 工作台：PDF 阅读器 + Markdown 笔记 + AI 对话侧边栏
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Save, FilePlus2, BookOpen, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { ArrowLeft, Save, FilePlus2, BookOpen, PanelLeftClose, PanelLeftOpen, PanelRightOpen, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PDFViewer } from "./PDFViewer";
 import { NoteEditor } from "@/components/notes/NoteEditor";
+import { AgentChatSidebar } from "@/components/ai/AgentChatSidebar";
 import { api } from "@/lib/api";
 import { useUIStore } from "@/stores/ui";
 import type { PaperDetail } from "@/types";
@@ -24,6 +25,8 @@ export function ReaderShell({ paperId }: Props) {
   const [savingProgress, setSavingProgress] = useState(false);
   // 笔记栏可收起
   const [notesCollapsed, setNotesCollapsed] = useState(false);
+  // AI 对话栏可收起（默认展开，作为独立侧边栏）
+  const [aiCollapsed, setAiCollapsed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -127,6 +130,16 @@ export function ReaderShell({ paperId }: Props) {
               第 {currentPage} / {totalPages} 页
             </>
           ) : null}
+          <Button
+            variant={aiCollapsed ? "ghost" : "secondary"}
+            size="sm"
+            className="h-7 gap-1 text-xs"
+            onClick={() => setAiCollapsed((c) => !c)}
+            title={aiCollapsed ? "展开 AI 对话" : "收起 AI 对话"}
+          >
+            <Sparkles className="h-3 w-3" />
+            AI 对话
+          </Button>
         </div>
       </header>
 
@@ -182,11 +195,37 @@ export function ReaderShell({ paperId }: Props) {
                       创建空白笔记
                     </Button>
                     <p className="text-xs">
-                      也可以在论文详情面板中使用 AI 自动创建结构化笔记。
+                      也可以在 AI 对话中使用"自动建笔记"快捷功能。
                     </p>
                   </div>
                 )}
               </div>
+            </div>
+          )}
+        </section>
+        {/* AI 对话侧边栏（独立第三栏，可收起） */}
+        <section
+          className={
+            aiCollapsed
+              ? "w-[40px] shrink-0 border-l border-border"
+              : "flex-[1_1_0%] min-w-[360px] border-l border-border"
+          }
+        >
+          {aiCollapsed ? (
+            <button
+              className="flex h-full w-full flex-col items-center justify-center gap-2 text-muted-foreground hover:text-foreground"
+              onClick={() => setAiCollapsed(false)}
+              title="展开 AI 对话"
+            >
+              <PanelRightOpen className="h-4 w-4" />
+              <span className="text-[10px] [writing-mode:vertical-rl]">AI 对话</span>
+            </button>
+          ) : (
+            <div className="flex h-full flex-col">
+              <AgentChatSidebar
+                paperId={paperId}
+                onClose={() => setAiCollapsed(true)}
+              />
             </div>
           )}
         </section>

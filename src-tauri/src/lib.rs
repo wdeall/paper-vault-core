@@ -51,6 +51,16 @@ pub fn run() {
                     if let Err(e) = vault::init_at(&path) {
                         log::warn!("加载上次 vault 失败: {e}");
                     } else {
+                        // 恢复 vault 时也要跑迁移，确保新增的迁移文件
+                        // （如 0004_ai_conversations.sql）在老库上生效。
+                        if let Err(e) = crate::db::migrate(&path) {
+                            log::warn!("数据库迁移失败: {e}");
+                        }
+                        // 补全缺失的内置 AI preset（如新增的 reproduction_plan）。
+                        // 用 INSERT OR IGNORE 保证幂等，老库也能拿到新 preset。
+                        if let Err(e) = crate::services::preset::seed_builtins_if_empty(&path) {
+                            log::warn!("补全内置 AI preset 失败: {e}");
+                        }
                         *state.vault_path.write() = Some(path.clone());
                         // 启动时清理超过 5 分钟撤销窗口的 merge_log 行（避免长
                         // 期运行的 vault 累积过期快照）。
@@ -117,6 +127,14 @@ pub fn run() {
             commands::reset_ai_preset,
             commands::run_ai,
             commands::chat_with_paper,
+            commands::list_ai_conversations,
+            commands::create_ai_conversation,
+            commands::delete_ai_conversation,
+            commands::rename_ai_conversation,
+            commands::list_ai_messages,
+            commands::send_ai_message,
+            commands::run_ai_preset_in_chat,
+            commands::summarize_ai_conversation,
             commands::get_ai_config,
             commands::update_ai_config,
             commands::export_bibtex,

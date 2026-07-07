@@ -139,6 +139,16 @@ async fn import_pdf_impl(
 
     let pdf_path = vault::copy_pdf(&vault, src, &paper_id, &title)?;
 
+    // 导入时把 PDF 全文转为 md 文件，存到 notes/papers/{id}-fulltext.md。
+    // 对话时直接读此文件，避免每次重新提取 PDF 文本，也避免把全文塞进对话记录。
+    let fulltext_md_path = vault
+        .join(crate::vault::NOTES_DIR)
+        .join(crate::vault::NOTES_PAPERS_DIR)
+        .join(format!("{paper_id}-fulltext.md"));
+    if let Err(e) = pdf::save_fulltext_md(&pdf_path, &fulltext_md_path) {
+        log::warn!("PDF 全文转 md 失败（不影响导入）: {e}");
+    }
+
     let now = chrono::Local::now().timestamp_millis();
     let p = Paper {
         id: paper_id.clone(),
@@ -290,18 +300,186 @@ pub async fn extract_metadata(
     } else {
         Default::default()
     };
-    Ok(MetadataCandidate {
-        title: if !basic.title.is_empty() { basic.title } else { detail.paper.title },
-        authors: detail.paper.authors,
-        year: detail.paper.year,
-        venue: detail.paper.venue,
-        doi: if !basic.doi.is_empty() { basic.doi } else { detail.paper.doi },
-        abstract_text: detail.paper.abstract_text,
-        keywords: detail.paper.keywords,
-        source: "pdf-text".into(),
-        confidence: 0.7,
-        identifiers: Vec::new(),
-    })
+
+    // 本地兜底值（PDF 启发式 + 已入库元数据）
+    let local_title = if !basic.title.is_empty() {
+        basic.title.clone()
+    } else {
+        detail.paper.title.clone()
+    };
+    let local_doi = if !basic.doi.is_empty() {
+        basic.doi.clone()
+    } else {
+        detail.paper.doi.clone()
+    };
+
+    // 联网补充：DOI 优先 → 标题搜索兜底。
+    // 任意一条命中即采用网络元数据（更权威），本地值仅作 fallback。
+    let mut network_meta: Option<crate::types::PaperMetadata> = None;
+    let mut network_source: String = String::new();
+
+    if !local_doi.is_empty() {
+        let parsed = identifier::parse(&local_doi);
+        if let Some((scheme, value)) = parsed.into_iter().next() {
+            match resolver::default_resolver(scheme) {
+                Ok(r) => match r.fetch(&value).await {
+                    Ok(m) => {
+                        log::info!("按 DOI 联网命中元数据: {}", m.title);
+                        network_meta = Some(m);
+                        network_source = format!("network-{}", scheme_name(scheme));
+                    }
+                    Err(e) => {
+                        log::warn!("按 DOI 联网失败 ({value}): {e}");
+                    }
+                },
+                Err(e) => log::warn!("DOI resolver 不可用: {e}"),
+            }
+        }
+    }
+
+    if network_meta.is_none() && !local_title.is_empty() {
+        // 用 PDF 提取的关键词辅助搜索，提高匹配率。
+        // Crossref query.bibliographic 支持多词模糊匹配。
+        let search_query = if !basic.keywords.is_empty() {
+            format!("{} {}", local_title, basic.keywords.join(" "))
+        } else {
+            local_title.clone()
+        };
+        match resolver::search_by_title(&search_query, 5).await {
+            Ok(hits) if !hits.is_empty() => {
+                // Crossref 按相关性返回多个候选，选标题最相似的。
+                // 避免因 PDF 提取的 title 不准导致匹配到错误论文。
+                let best = hits
+                    .into_iter()
+                    .max_by(|a, b| {
+                        let sim_a = title_similarity(&local_title, &a.title);
+                        let sim_b = title_similarity(&local_title, &b.title);
+                        sim_a.partial_cmp(&sim_b).unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .unwrap();
+                let sim = title_similarity(&local_title, &best.title);
+                log::info!(
+                    "按标题联网命中元数据: {} (相似度: {:.2})",
+                    best.title, sim
+                );
+                // 相似度过低时不采用，避免错误匹配
+                if sim >= 0.4 {
+                    network_meta = Some(best);
+                    network_source = "network-crossref-search".into();
+                } else {
+                    log::warn!(
+                        "标题相似度过低 ({:.2}), 不采用联网结果: PDF提取=\"{}\" vs Crossref=\"{}\"",
+                        sim, local_title, best.title
+                    );
+                }
+            }
+            Ok(_) => log::info!("按标题联网未命中"),
+            Err(e) => log::warn!("按标题联网失败: {e}"),
+        }
+    }
+
+    // 合并：网络元数据优先，缺失字段用 PDF 本地值补足。
+    // 重点：Crossref 很多记录缺 abstract/keywords，用 PDF 提取的本地值补齐。
+    let local_abstract = if !basic.abstract_text.is_empty() {
+        basic.abstract_text.clone()
+    } else {
+        detail.paper.abstract_text.clone()
+    };
+    let local_keywords = if !basic.keywords.is_empty() {
+        basic.keywords.clone()
+    } else {
+        detail.paper.keywords.clone()
+    };
+
+    if let Some(m) = network_meta {
+        let doi = if !m.doi.is_empty() {
+            m.doi
+        } else {
+            local_doi
+        };
+        // 联网命中但 abstract/keywords 为空时用 PDF 本地值补足
+        let abstract_text = if !m.abstract_text.is_empty() {
+            m.abstract_text
+        } else {
+            local_abstract
+        };
+        let keywords = if !m.keywords.is_empty() {
+            m.keywords
+        } else {
+            local_keywords
+        };
+        Ok(MetadataCandidate {
+            title: if !m.title.is_empty() { m.title } else { local_title },
+            authors: m.authors,
+            year: m.year,
+            venue: m.venue,
+            doi,
+            abstract_text,
+            keywords,
+            source: network_source,
+            confidence: 0.9,
+            identifiers: m.identifiers,
+        })
+    } else {
+        // 网络全失败，返回本地值（含 PDF 提取的 abstract/keywords）
+        Ok(MetadataCandidate {
+            title: local_title,
+            authors: detail.paper.authors,
+            year: detail.paper.year,
+            venue: detail.paper.venue,
+            doi: local_doi,
+            abstract_text: local_abstract,
+            keywords: local_keywords,
+            source: "pdf-text".into(),
+            confidence: 0.7,
+            identifiers: Vec::new(),
+        })
+    }
+}
+
+/// 把 `Scheme` 转为可读字符串用于 `MetadataCandidate.source`。
+fn scheme_name(s: identifier::Scheme) -> &'static str {
+    use identifier::Scheme::*;
+    match s {
+        Doi => "doi",
+        Arxiv => "arxiv",
+        Pmid => "pmid",
+        Isbn => "isbn",
+    }
+}
+
+/// 计算两个标题的相似度（0.0..1.0）。
+/// 使用 token-based Jaccard：把标题按空白分词，计算交集/并集。
+/// 大小写不敏感，过滤常见停用词。
+fn title_similarity(a: &str, b: &str) -> f64 {
+    let stopwords: std::collections::HashSet<&str> = [
+        "the", "a", "an", "of", "for", "and", "on", "in", "to", "with",
+        "via", "by", "from", "at", "is", "are", "be", "as", "that", "this",
+    ]
+    .into_iter()
+    .collect();
+
+    let tokenize = |s: &str| -> std::collections::HashSet<String> {
+        s.to_lowercase()
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|t| !t.is_empty() && t.len() > 1 && !stopwords.contains(t))
+            .map(|t| t.to_string())
+            .collect()
+    };
+
+    let set_a = tokenize(a);
+    let set_b = tokenize(b);
+
+    if set_a.is_empty() || set_b.is_empty() {
+        return 0.0;
+    }
+
+    let intersection = set_a.intersection(&set_b).count();
+    let union = set_a.union(&set_b).count();
+    if union == 0 {
+        return 0.0;
+    }
+    intersection as f64 / union as f64
 }
 
 #[tauri::command]
